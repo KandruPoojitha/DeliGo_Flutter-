@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'signup_page.dart';
 import 'forgot_password_page.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'home_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -34,11 +36,33 @@ class _LoginPageState extends State<LoginPage> {
           password: _passwordController.text,
         );
 
-        if (mounted) {
-          // TODO: Navigate to appropriate page based on user role
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Login successful!')),
-          );
+        final user = _auth.currentUser;
+        if (user != null) {
+          // Check user role
+          final roles = ['customers', 'restaurants', 'drivers'];
+          String? userRole;
+          
+          for (final role in roles) {
+            final snapshot = await FirebaseDatabase.instance
+                .ref()
+                .child(role)
+                .child(user.uid)
+                .get();
+            
+            if (snapshot.exists) {
+              userRole = role.substring(0, role.length - 1); // Remove 's' from end
+              break;
+            }
+          }
+
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => HomePage(userRole: userRole ?? 'customer'),
+              ),
+            );
+          }
         }
       } on FirebaseAuthException catch (e) {
         String message;
