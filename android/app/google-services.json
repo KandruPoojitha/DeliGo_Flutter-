@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "161723224896",
+    "firebase_url": "https://deligo-6cdb9-default-rtdb.firebaseio.com",
+    "project_id": "deligo-6cdb9",
+    "storage_bucket": "deligo-6cdb9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:161723224896:android:96c5b4cd25c171bafda0a5",
+        "android_client_info": {
+          "package_name": "com.example.deligoandroid"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD1MmIqbJht-bbIu5wn1KU9_EMUYi-jjyI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:161723224896:android:b5216d971c6c0552fda0a5",
+        "android_client_info": {
+          "package_name": "com.example.deligoflutter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD1MmIqbJht-bbIu5wn1KU9_EMUYi-jjyI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
