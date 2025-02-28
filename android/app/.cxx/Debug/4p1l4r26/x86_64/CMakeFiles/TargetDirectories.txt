@@ -1,0 +1,2 @@
+/Users/admin/StudioProjects/DeliGo_Flutter-/android/app/.cxx/Debug/4p1l4r26/x86_64/CMakeFiles/edit_cache.dir
+/Users/admin/StudioProjects/DeliGo_Flutter-/android/app/.cxx/Debug/4p1l4r26/x86_64/CMakeFiles/rebuild_cache.dir
