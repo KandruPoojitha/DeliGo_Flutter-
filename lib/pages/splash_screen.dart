@@ -50,9 +50,7 @@ class _SplashScreenState extends State<SplashScreen> {
         if (mounted) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(
-              builder: (context) => HomePage(userRole: userRole ?? 'customer'),
-            ),
+            MaterialPageRoute(builder: (context) => const LoginPage()),
           );
         }
       } catch (e) {

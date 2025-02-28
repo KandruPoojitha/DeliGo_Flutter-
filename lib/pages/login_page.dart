@@ -4,6 +4,7 @@ import 'signup_page.dart';
 import 'forgot_password_page.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'home_page.dart';
+import 'admin/admin_dashboard.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -20,6 +21,13 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Sign out any existing user when login page is opened
+    _auth.signOut();
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -31,14 +39,33 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => _isLoading = true);
       
       try {
-        await _auth.signInWithEmailAndPassword(
+        final userCredential = await _auth.signInWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text,
         );
 
-        final user = _auth.currentUser;
+        final user = userCredential.user;
         if (user != null) {
-          // Check user role
+          // First check if user is admin
+          final adminSnapshot = await FirebaseDatabase.instance
+              .ref()
+              .child('admins')
+              .child(user.uid)
+              .get();
+          
+          if (adminSnapshot.exists) {
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AdminDashboard(),
+                ),
+              );
+            }
+            return;
+          }
+
+          // If not admin, check other roles
           final roles = ['customers', 'restaurants', 'drivers'];
           String? userRole;
           

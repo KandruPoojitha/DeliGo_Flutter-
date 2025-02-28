@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'pages/splash_screen.dart';
+import 'pages/admin/admin_dashboard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,10 +33,27 @@ class MyApp extends StatelessWidget {
         //
         // This works for code too, not just values: Most code changes can be
         // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFF4A261)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFF4A261),
+          primary: const Color(0xFFF4A261),
+          secondary: const Color(0xFF2A9D8F),
+        ),
         useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          elevation: 2,
+          centerTitle: true,
+        ),
+        cardTheme: CardTheme(
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
       ),
       home: const SplashScreen(),
+      routes: {
+        '/admin': (context) => const AdminDashboard(),
+      },
     );
   }
 }
