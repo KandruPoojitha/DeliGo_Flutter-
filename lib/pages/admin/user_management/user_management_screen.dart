@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../services/driver_service.dart';
+import '../../../services/restaurant_service.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -13,6 +14,7 @@ class UserManagementScreen extends StatefulWidget {
 class _UserManagementScreenState extends State<UserManagementScreen> {
   final _database = FirebaseDatabase.instance;
   final _driverService = DriverService();
+  final _restaurantService = RestaurantService();
   String? _selectedCategory;
   List<Map<String, dynamic>> _users = [];
   bool _isLoading = false;
@@ -40,6 +42,28 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               'status': userData['status'] ?? 'pending_review',
               'documentsSubmitted': userData['documentsSubmitted'] ?? false,
               'documents': userData['documents'],
+              'createdAt': userData['createdAt'],
+              'updatedAt': userData['updatedAt'],
+            };
+          }).toList();
+        }
+      } else if (category == 'Restaurant') {
+        // Load restaurants from the restaurants collection
+        final snapshot = await _database.ref('restaurants').get();
+        if (snapshot.exists && snapshot.value != null) {
+          final data = snapshot.value as Map<dynamic, dynamic>;
+          
+          _users = data.entries.map((entry) {
+            final userData = entry.value as Map<dynamic, dynamic>;
+            return {
+              'id': entry.key,
+              'name': userData['fullName'] ?? 'Unknown',
+              'email': userData['email'] ?? '',
+              'phone': userData['phone'] ?? '',
+              'status': userData['status'] ?? 'pending_review',
+              'documentsSubmitted': userData['documentsSubmitted'] ?? false,
+              'documents': userData['documents'],
+              'hours': userData['hours'],
               'createdAt': userData['createdAt'],
               'updatedAt': userData['updatedAt'],
             };
@@ -177,6 +201,11 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                       value: 'view',
                                       child: Text('View Details'),
                                     ),
+                                    if (_selectedCategory == 'Driver' || _selectedCategory == 'Restaurant')
+                                      PopupMenuItem(
+                                        value: user['status'] == 'approved' ? 'reject' : 'approve',
+                                        child: Text(user['status'] == 'approved' ? 'Reject' : 'Approve'),
+                                      ),
                                     PopupMenuItem(
                                       value: isBlocked ? 'unblock' : 'block',
                                       child: Text(isBlocked ? 'Unblock User' : 'Block User'),
@@ -227,6 +256,22 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     switch (action) {
       case 'view':
         _viewUserDetails(user);
+        break;
+      case 'approve':
+        if (_selectedCategory == 'Driver') {
+          await _driverService.updateDriverApproval(user['id'], true);
+        } else if (_selectedCategory == 'Restaurant') {
+          await _restaurantService.updateRestaurantApproval(user['id'], true);
+        }
+        _loadUsers(_selectedCategory!);
+        break;
+      case 'reject':
+        if (_selectedCategory == 'Driver') {
+          await _driverService.updateDriverApproval(user['id'], false);
+        } else if (_selectedCategory == 'Restaurant') {
+          await _restaurantService.updateRestaurantApproval(user['id'], false);
+        }
+        _loadUsers(_selectedCategory!);
         break;
       case 'block':
       case 'unblock':
@@ -293,9 +338,174 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   void _viewUserDetails(Map<String, dynamic> user) {
     if (_selectedCategory == 'Driver') {
       _showDriverVerificationDialog(user);
-    } else {
-      // Handle other user types...
+    } else if (_selectedCategory == 'Restaurant') {
+      _showRestaurantVerificationDialog(user);
     }
+  }
+
+  Future<void> _showRestaurantVerificationDialog(Map<String, dynamic> user) async {
+    await showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Restaurant Verification',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: user['status'] == 'approved' 
+                            ? Colors.green.withAlpha(51)
+                            : Colors.orange.withAlpha(51),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        user['status'] == 'approved' ? 'Approved' : 'Pending Review',
+                        style: TextStyle(
+                          color: user['status'] == 'approved' ? Colors.green : Colors.orange,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text('Name: ${user['name']}'),
+                Text('Email: ${user['email']}'),
+                Text('Phone: ${user['phone']}'),
+                const SizedBox(height: 16),
+                if (user['hours'] != null) ...[
+                  Text(
+                    'Business Hours',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Opening Time: ${user['hours']['opening']}'),
+                  Text('Closing Time: ${user['hours']['closing']}'),
+                  Text('Status: ${user['hours']['isOpen'] ? 'Open' : 'Closed'}'),
+                ],
+                const SizedBox(height: 16),
+                if (user['documentsSubmitted'] == true && user['documents'] != null) ...[
+                  Text(
+                    'Documents',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Restaurant License:'),
+                            const SizedBox(height: 4),
+                            if (user['documents']['license']?['url'] != null)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: CachedNetworkImage(
+                                  imageUrl: user['documents']['license']['url'],
+                                  height: 150,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => const Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                  errorWidget: (context, url, error) => const Icon(Icons.error),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Owner ID:'),
+                            const SizedBox(height: 4),
+                            if (user['documents']['owner_id']?['url'] != null)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: CachedNetworkImage(
+                                  imageUrl: user['documents']['owner_id']['url'],
+                                  height: 150,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => const Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                  errorWidget: (context, url, error) => const Icon(Icons.error),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (user['status'] != 'approved') ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            await _restaurantService.updateRestaurantApproval(user['id'], false);
+                            if (mounted) {
+                              Navigator.pop(context);
+                              _loadUsers('Restaurant');
+                            }
+                          },
+                          icon: const Icon(Icons.close),
+                          label: const Text('Reject'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            await _restaurantService.updateRestaurantApproval(user['id'], true);
+                            if (mounted) {
+                              Navigator.pop(context);
+                              _loadUsers('Restaurant');
+                            }
+                          },
+                          icon: const Icon(Icons.check),
+                          label: const Text('Approve'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ] else
+                  const Text('No documents uploaded yet'),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _showDriverVerificationDialog(Map<String, dynamic> user) async {

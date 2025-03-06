@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'driver_page.dart';
+import 'restaurant_document_page.dart';
 
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
@@ -71,6 +72,25 @@ class _SignupPageState extends State<SignupPage> {
               context,
               MaterialPageRoute(
                 builder: (context) => const DriverPage(),
+              ),
+            );
+          }
+        } else if (_selectedRole == 'Restaurant') {
+          // For restaurants, save to the restaurants collection
+          await _database
+              .child('restaurants')
+              .child(userCredential.user!.uid)
+              .set({
+            ...userData,
+            'documentsSubmitted': false,
+            'status': 'pending_review',
+          });
+
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const RestaurantDocumentPage(),
               ),
             );
           }

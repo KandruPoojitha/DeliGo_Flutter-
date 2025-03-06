@@ -1,0 +1,69 @@
+class Restaurant {
+  final String id;
+  final String fullName;
+  final String email;
+  final String phone;
+  final String? address;
+  final Map<String, dynamic>? documents;
+  final String status;
+  final bool documentsSubmitted;
+  final Map<String, dynamic>? hours;
+  final DateTime createdAt;
+  final DateTime? updatedAt;
+
+  Restaurant({
+    required this.id,
+    required this.fullName,
+    required this.email,
+    required this.phone,
+    this.address,
+    this.documents,
+    required this.status,
+    required this.documentsSubmitted,
+    this.hours,
+    required this.createdAt,
+    this.updatedAt,
+  });
+
+  bool get isApproved => status == 'approved';
+
+  String? get opening => hours?['opening'] as String?;
+  String? get closing => hours?['closing'] as String?;
+  bool get isOpen => hours?['isOpen'] == true;
+
+  factory Restaurant.fromJson(Map<String, dynamic> json) {
+    return Restaurant(
+      id: json['id'] ?? '',
+      fullName: json['fullName'] ?? '',
+      email: json['email'] ?? '',
+      phone: json['phone'] ?? '',
+      address: json['address'],
+      documents: json['documents'],
+      status: json['status'] ?? 'pending_review',
+      documentsSubmitted: json['documentsSubmitted'] ?? false,
+      hours: json['hours'],
+      createdAt: json['createdAt'] != null 
+          ? DateTime.fromMillisecondsSinceEpoch(json['createdAt'])
+          : DateTime.now(),
+      updatedAt: json['updatedAt'] != null 
+          ? DateTime.fromMillisecondsSinceEpoch(json['updatedAt'])
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'fullName': fullName,
+      'email': email,
+      'phone': phone,
+      'address': address,
+      'documents': documents,
+      'status': status,
+      'documentsSubmitted': documentsSubmitted,
+      'hours': hours,
+      'createdAt': createdAt.millisecondsSinceEpoch,
+      'updatedAt': updatedAt?.millisecondsSinceEpoch,
+    };
+  }
+} 

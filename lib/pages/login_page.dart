@@ -8,6 +8,7 @@ import 'admin/admin_dashboard.dart';
 import 'driver_page.dart';
 import 'customer_page.dart';
 import 'restaurant_page.dart';
+import 'restaurant_document_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -82,25 +83,33 @@ class _LoginPageState extends State<LoginPage> {
             if (snapshot.exists) {
               userRole = role.substring(0, role.length - 1); // Remove 's' from end
               
-              // If user is a driver, check if they have completed their profile
-              if (userRole == 'driver') {
-                final driverSnapshot = await FirebaseDatabase.instance
+              // If user is a driver or restaurant, check if they have completed their profile
+              if (userRole == 'driver' || userRole == 'restaurant') {
+                final snapshot = await FirebaseDatabase.instance
                     .ref()
-                    .child('drivers')
+                    .child('${userRole}s')
                     .child(user.uid)
                     .get();
                 
-                if (!driverSnapshot.exists) {
-                  // Driver hasn't completed their profile, redirect to driver page
-                  if (mounted) {
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const DriverPage(),
-                      ),
-                    );
+                if (snapshot.exists) {
+                  final userData = snapshot.value as Map<dynamic, dynamic>;
+                  final documentsSubmitted = userData['documentsSubmitted'] ?? false;
+                  final status = userData['status'] ?? 'pending_review';
+
+                  // If documents are not submitted or status is pending_review, redirect to document page
+                  if (!documentsSubmitted || status == 'pending_review') {
+                    if (mounted) {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => userRole == 'driver' 
+                              ? const DriverPage() 
+                              : const RestaurantDocumentPage(),
+                        ),
+                      );
+                    }
+                    return;
                   }
-                  return;
                 }
               }
               
