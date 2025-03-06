@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
-import '../../../services/admin_service.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../../services/driver_service.dart';
 
 class UserManagementScreen extends StatefulWidget {
-  const UserManagementScreen({Key? key}) : super(key: key);
+  const UserManagementScreen({super.key});
 
   @override
-  _UserManagementScreenState createState() => _UserManagementScreenState();
+  State<UserManagementScreen> createState() => _UserManagementScreenState();
 }
 
 class _UserManagementScreenState extends State<UserManagementScreen> {
   final _database = FirebaseDatabase.instance;
+  final _driverService = DriverService();
   String? _selectedCategory;
   List<Map<String, dynamic>> _users = [];
   bool _isLoading = false;
@@ -22,28 +24,51 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     });
 
     try {
-      // Convert category to collection name (e.g., Customer -> customers)
-      final collectionName = '${category.toLowerCase()}s';
-      
-      final snapshot = await _database.ref(collectionName).get();
-      
-      if (snapshot.exists && snapshot.value != null) {
-        final data = snapshot.value as Map<dynamic, dynamic>;
+      if (category == 'Driver') {
+        // Load drivers directly from the drivers collection
+        final snapshot = await _database.ref('drivers').get();
+        if (snapshot.exists && snapshot.value != null) {
+          final data = snapshot.value as Map<dynamic, dynamic>;
+          
+          _users = data.entries.map((entry) {
+            final userData = entry.value as Map<dynamic, dynamic>;
+            return {
+              'id': entry.key,
+              'name': userData['fullName'] ?? 'Unknown',
+              'email': userData['email'] ?? '',
+              'phone': userData['phone'] ?? '',
+              'status': userData['status'] ?? 'pending_review',
+              'documentsSubmitted': userData['documentsSubmitted'] ?? false,
+              'documents': userData['documents'],
+              'createdAt': userData['createdAt'],
+              'updatedAt': userData['updatedAt'],
+            };
+          }).toList();
+        }
+      } else {
+        // Load other users from their respective collections
+        final collectionName = '${category}s';
+        final snapshot = await _database.ref(collectionName).get();
         
-        _users = data.entries.map((entry) {
-          final userData = entry.value as Map<dynamic, dynamic>;
-          return {
-            'id': entry.key,
-            'name': userData['fullName'] ?? 'Unknown',
-            'email': userData['email'] ?? '',
-            'status': userData['status'] ?? 'active',
-            'createdAt': userData['createdAt'],
-            'blockedAt': userData['blockedAt'],
-          };
-        }).toList();
+        if (snapshot.exists && snapshot.value != null) {
+          final data = snapshot.value as Map<dynamic, dynamic>;
+          
+          _users = data.entries.map((entry) {
+            final userData = entry.value as Map<dynamic, dynamic>;
+            return {
+              'id': entry.key,
+              'name': userData['fullName'] ?? 'Unknown',
+              'email': userData['email'] ?? '',
+              'phone': userData['phone'] ?? '',
+              'status': userData['status'] ?? 'active',
+              'createdAt': userData['createdAt'],
+              'blockedAt': userData['blockedAt'],
+            };
+          }).toList();
+        }
       }
     } catch (e) {
-      print('Error loading users: $e');
+      debugPrint('Error loading users: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -99,7 +124,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               alignment: Alignment.centerLeft,
               child: Text(
                 _selectedCategory != null 
-                    ? '${_selectedCategory} List'
+                    ? '$_selectedCategory List'
                     : 'Select a category',
                 style: const TextStyle(
                   fontSize: 18,
@@ -266,65 +291,164 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   }
 
   void _viewUserDetails(Map<String, dynamic> user) {
-    showDialog(
+    if (_selectedCategory == 'Driver') {
+      _showDriverVerificationDialog(user);
+    } else {
+      // Handle other user types...
+    }
+  }
+
+  Future<void> _showDriverVerificationDialog(Map<String, dynamic> user) async {
+    await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('User Details'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _detailRow('Name', user['name']),
-            _detailRow('Email', user['email']),
-            _detailRow('Role', _selectedCategory ?? 'Unknown'),
-            _detailRow('Status', user['status']),
-            _detailRow('Created At', _formatTimestamp(user['createdAt'])),
-            if (user['status'] == 'blocked')
-              _detailRow('Blocked At', _formatTimestamp(user['blockedAt'])),
-          ],
+      builder: (context) => Dialog(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Driver Verification',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: user['status'] == 'approved' 
+                            ? Colors.green.withAlpha(51)
+                            : Colors.orange.withAlpha(51),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        user['status'] == 'approved' ? 'Approved' : 'Pending Review',
+                        style: TextStyle(
+                          color: user['status'] == 'approved' ? Colors.green : Colors.orange,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text('Name: ${user['name']}'),
+                Text('Email: ${user['email']}'),
+                Text('Phone: ${user['phone']}'),
+                const SizedBox(height: 16),
+                if (user['documentsSubmitted'] == true && user['documents'] != null) ...[
+                  Text(
+                    'Documents',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Driver License:'),
+                            const SizedBox(height: 4),
+                            if (user['documents']['license']?['url'] != null)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: CachedNetworkImage(
+                                  imageUrl: user['documents']['license']['url'],
+                                  height: 150,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => const Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                  errorWidget: (context, url, error) => const Icon(Icons.error),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Government ID:'),
+                            const SizedBox(height: 4),
+                            if (user['documents']['govt_id']?['url'] != null)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: CachedNetworkImage(
+                                  imageUrl: user['documents']['govt_id']['url'],
+                                  height: 150,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => const Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                  errorWidget: (context, url, error) => const Icon(Icons.error),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (user['status'] != 'approved') ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            await _driverService.updateDriverApproval(user['id'], false);
+                            if (mounted) {
+                              Navigator.pop(context);
+                              _loadUsers('Driver');
+                            }
+                          },
+                          icon: const Icon(Icons.close),
+                          label: const Text('Reject'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            await _driverService.updateDriverApproval(user['id'], true);
+                            if (mounted) {
+                              Navigator.pop(context);
+                              _loadUsers('Driver');
+                            }
+                          },
+                          icon: const Icon(Icons.check),
+                          label: const Text('Approve'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ] else
+                  const Text('No documents uploaded yet'),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
       ),
     );
-  }
-
-  Widget _detailRow(String label, String? value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$label: ',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          Expanded(
-            child: Text(value ?? 'N/A'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatTimestamp(dynamic timestamp) {
-    if (timestamp == null) return 'N/A';
-    
-    if (timestamp is DateTime) {
-      return timestamp.toLocal().toString();
-    }
-    
-    try {
-      final dateTime = DateTime.fromMillisecondsSinceEpoch(
-        timestamp is int ? timestamp : int.parse(timestamp.toString())
-      );
-      return dateTime.toLocal().toString();
-    } catch (e) {
-      return 'Invalid date';
-    }
   }
 } 

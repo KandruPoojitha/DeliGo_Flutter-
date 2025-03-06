@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'signup_page.dart';
 import 'forgot_password_page.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'home_page.dart';
+//import 'home_page.dart';
 import 'admin/admin_dashboard.dart';
+import 'driver_page.dart';
+import 'customer_page.dart';
+import 'restaurant_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -78,15 +81,61 @@ class _LoginPageState extends State<LoginPage> {
             
             if (snapshot.exists) {
               userRole = role.substring(0, role.length - 1); // Remove 's' from end
-              break;
+              
+              // If user is a driver, check if they have completed their profile
+              if (userRole == 'driver') {
+                final driverSnapshot = await FirebaseDatabase.instance
+                    .ref()
+                    .child('drivers')
+                    .child(user.uid)
+                    .get();
+                
+                if (!driverSnapshot.exists) {
+                  // Driver hasn't completed their profile, redirect to driver page
+                  if (mounted) {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const DriverPage(),
+                      ),
+                    );
+                  }
+                  return;
+                }
+              }
+              
+              // Redirect to role-specific page
+              if (mounted) {
+                Widget page;
+                switch (userRole) {
+                  case 'customer':
+                    page = const CustomerPage();
+                    break;
+                  case 'restaurant':
+                    page = const RestaurantPage();
+                    break;
+                  case 'driver':
+                    page = const DriverPage();
+                    break;
+                  default:
+                    page = const CustomerPage();
+                }
+                
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => page),
+                );
+              }
+              return;
             }
           }
 
+          // If no role found, redirect to customer page as default
           if (mounted) {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (context) => HomePage(userRole: userRole ?? 'customer'),
+                builder: (context) => const CustomerPage(),
               ),
             );
           }

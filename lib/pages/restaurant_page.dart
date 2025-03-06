@@ -2,13 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'login_page.dart';
 
-class HomePage extends StatelessWidget {
-  final String userRole;
-  
-  const HomePage({
-    super.key,
-    required this.userRole,
-  });
+class RestaurantPage extends StatelessWidget {
+  const RestaurantPage({super.key});
 
   Future<void> _signOut(BuildContext context) async {
     try {
@@ -32,7 +27,7 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('${userRole.toUpperCase()} Home'),
+        title: const Text('Restaurant Dashboard'),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
@@ -40,21 +35,8 @@ class HomePage extends StatelessWidget {
           ),
         ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Welcome ${userRole.toUpperCase()}!',
-              style: const TextStyle(fontSize: 24),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'You are logged in as: ${FirebaseAuth.instance.currentUser?.email}',
-              style: const TextStyle(fontSize: 16),
-            ),
-          ],
-        ),
+      body: const Center(
+        child: Text('Welcome to Restaurant Dashboard!'),
       ),
     );
   }

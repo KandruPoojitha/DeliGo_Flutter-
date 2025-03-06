@@ -49,11 +49,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
       body: GridView.count(
         padding: const EdgeInsets.all(16.0),
         crossAxisCount: 2,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
         children: [
           _buildDashboardCard(
             context,
             'User Management',
             Icons.people,
+            Colors.green,
             () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -65,6 +68,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             context,
             'Chat Management',
             Icons.chat,
+            Colors.orange,
             () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -81,6 +85,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     BuildContext context,
     String title,
     IconData icon,
+    Color color,
     VoidCallback onTap,
   ) {
     return Card(
@@ -93,15 +98,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
             Icon(
               icon,
               size: 48,
-              color: Theme.of(context).primaryColor,
+              color: color,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             Text(
               title,
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),

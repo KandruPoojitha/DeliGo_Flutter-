@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'driver_page.dart';
 
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
@@ -44,25 +45,48 @@ class _SignupPageState extends State<SignupPage> {
           password: _passwordController.text,
         );
 
-        // Prepare user data
+        // Prepare user data with role
         final userData = {
           'fullName': _fullNameController.text,
           'email': _emailController.text,
           'phone': _phoneController.text,
           'role': _selectedRole,
+          'createdAt': DateTime.now().toIso8601String(),
         };
 
         // Save user data to Realtime Database under the appropriate collection
-        await _database
-            .child('${_selectedRole.toLowerCase()}s')
-            .child(userCredential.user!.uid)
-            .set(userData);
+        if (_selectedRole == 'Driver') {
+          // For drivers, save to the existing drivers collection
+          await _database
+              .child('drivers')
+              .child(userCredential.user!.uid)
+              .set({
+            ...userData,
+            'documentsSubmitted': false,
+            'status': 'pending_review',
+          });
 
-        if (mounted) {
-          Navigator.pop(context); // Return to login page
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Account created successfully!')),
-          );
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const DriverPage(),
+              ),
+            );
+          }
+        } else {
+          // For other roles, save to their respective collections
+          await _database
+              .child('${_selectedRole}s')
+              .child(userCredential.user!.uid)
+              .set(userData);
+
+          if (mounted) {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Account created successfully!')),
+            );
+          }
         }
       } on FirebaseAuthException catch (e) {
         String message;
