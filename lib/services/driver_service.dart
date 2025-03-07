@@ -30,7 +30,8 @@ class DriverService {
 
   Future<void> updateDriverApproval(String uid, bool isApproved) async {
     await _database.ref().child('drivers').child(uid).update({
-      'status': isApproved ? 'approved' : 'pending_review',
+      'documents.status': isApproved ? 'approved' : 'rejected',
+      'documents.updatedAt': DateTime.now().toIso8601String(),
       'updatedAt': DateTime.now().toIso8601String(),
     });
   }

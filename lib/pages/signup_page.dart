@@ -64,7 +64,10 @@ class _SignupPageState extends State<SignupPage> {
               .set({
             ...userData,
             'documentsSubmitted': false,
-            'status': 'pending_review',
+            'documents': {
+              'status': 'pending_review',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
           });
 
           if (mounted) {
@@ -83,7 +86,10 @@ class _SignupPageState extends State<SignupPage> {
               .set({
             ...userData,
             'documentsSubmitted': false,
-            'status': 'pending_review',
+            'documents': {
+              'status': 'pending_review',
+              'createdAt': DateTime.now().toIso8601String(),
+            },
           });
 
           if (mounted) {

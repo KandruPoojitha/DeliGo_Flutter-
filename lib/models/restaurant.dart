@@ -10,6 +10,8 @@ class Restaurant {
   final Map<String, dynamic>? hours;
   final DateTime createdAt;
   final DateTime? updatedAt;
+  final String? profileImageUrl;
+  final String? about;
 
   Restaurant({
     required this.id,
@@ -23,6 +25,8 @@ class Restaurant {
     this.hours,
     required this.createdAt,
     this.updatedAt,
+    this.profileImageUrl,
+    this.about,
   });
 
   bool get isApproved => status == 'approved';
@@ -30,6 +34,38 @@ class Restaurant {
   String? get opening => hours?['opening'] as String?;
   String? get closing => hours?['closing'] as String?;
   bool get isOpen => hours?['isOpen'] == true;
+
+  Restaurant copyWith({
+    String? id,
+    String? fullName,
+    String? email,
+    String? phone,
+    String? address,
+    Map<String, dynamic>? documents,
+    String? status,
+    bool? documentsSubmitted,
+    Map<String, dynamic>? hours,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    String? profileImageUrl,
+    String? about,
+  }) {
+    return Restaurant(
+      id: id ?? this.id,
+      fullName: fullName ?? this.fullName,
+      email: email ?? this.email,
+      phone: phone ?? this.phone,
+      address: address ?? this.address,
+      documents: documents ?? this.documents,
+      status: status ?? this.status,
+      documentsSubmitted: documentsSubmitted ?? this.documentsSubmitted,
+      hours: hours ?? this.hours,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+      about: about ?? this.about,
+    );
+  }
 
   factory Restaurant.fromJson(Map<String, dynamic> json) {
     return Restaurant(
@@ -48,6 +84,8 @@ class Restaurant {
       updatedAt: json['updatedAt'] != null 
           ? DateTime.fromMillisecondsSinceEpoch(json['updatedAt'])
           : null,
+      profileImageUrl: json['profileImageUrl'],
+      about: json['about'],
     );
   }
 
@@ -64,6 +102,8 @@ class Restaurant {
       'hours': hours,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt?.millisecondsSinceEpoch,
+      'profileImageUrl': profileImageUrl,
+      'about': about,
     };
   }
 } 

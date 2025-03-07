@@ -85,8 +85,8 @@ class _DriverPageState extends State<DriverPage> {
           .child(_user!.uid)
           .update({
         'documentsSubmitted': true,
-        'status': 'pending_review',
         'documents': {
+          'status': 'pending_review',
           'govt_id': {
             'url': govtIdUrl,
             'uploadTime': now,
@@ -94,7 +94,8 @@ class _DriverPageState extends State<DriverPage> {
           'license': {
             'url': licenseUrl,
             'uploadTime': now,
-          }
+          },
+          'updatedAt': now,
         },
         'updatedAt': now,
       });

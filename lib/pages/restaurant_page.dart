@@ -10,6 +10,8 @@ import '../models/restaurant.dart';
 import '../providers/theme_provider.dart';
 import 'login_page.dart';
 import 'add_menu_item_page.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:io';
 
 class RestaurantPage extends StatefulWidget {
   const RestaurantPage({super.key});
@@ -27,12 +29,15 @@ class _RestaurantPageState extends State<RestaurantPage> {
   int _ordersTabIndex = 0;
   bool _isDarkMode = false;
   bool _isEnglish = true;
+  final _menuItemsCount = ValueNotifier<int>(0);
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _aboutController = TextEditingController();
   final _addressController = TextEditingController();
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
   Map<String, Map<String, dynamic>> _businessHours = {
     'Monday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
     'Tuesday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
@@ -45,6 +50,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
   List<Map<String, dynamic>> _predictions = [];
   bool _isLoadingAddresses = false;
   final String _apiKey = 'AIzaSyDHujk0Z7p3_mjmPsicmn7T9iyQBC0ZqtU';
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -59,25 +65,54 @@ class _RestaurantPageState extends State<RestaurantPage> {
     _phoneController.dispose();
     _aboutController.dispose();
     _addressController.dispose();
+    _searchController.dispose();
+    _menuItemsCount.dispose();
     super.dispose();
   }
 
   Future<void> _loadRestaurantData() async {
     if (_user != null) {
-      final restaurant = await _restaurantService.getRestaurant(_user!.uid);
-      if (restaurant != null) {
-        setState(() {
-          _restaurant = restaurant;
-          _updateOpenStatus(restaurant);
-          _nameController.text = restaurant.fullName;
-          _emailController.text = restaurant.email;
-          _phoneController.text = restaurant.phone;
-          _addressController.text = restaurant.address ?? '';
-          if (restaurant.hours != null) {
-            _businessHours = Map<String, Map<String, dynamic>>.from(restaurant.hours!);
+      print('Loading restaurant data for user: ${_user!.uid}');
+      print('User email: ${_user!.email}');
+      
+      try {
+        final restaurant = await _restaurantService.getRestaurant(_user!.uid);
+        print('Restaurant data loaded: ${restaurant?.toMap()}');
+        
+        if (restaurant != null) {
+          print('Setting restaurant data in state:');
+          print('Full Name: ${restaurant.fullName}');
+          print('Email: ${restaurant.email}');
+          
+          if (mounted) {
+            setState(() {
+              _restaurant = restaurant;
+              _updateOpenStatus(restaurant);
+              _nameController.text = restaurant.fullName;
+              _emailController.text = restaurant.email;
+              _phoneController.text = restaurant.phone;
+              _addressController.text = restaurant.address ?? '';
+              if (restaurant.hours != null) {
+                _businessHours = Map<String, Map<String, dynamic>>.from(restaurant.hours!);
+              }
+            });
+            print('State updated with restaurant data');
           }
-        });
+        } else {
+          print('No restaurant data found for user: ${_user!.uid}');
+          // Try to fetch the data directly from Firebase to debug
+          final snapshot = await FirebaseDatabase.instance
+              .ref()
+              .child('restaurants')
+              .child(_user!.uid)
+              .get();
+          print('Direct Firebase data: ${snapshot.value}');
+        }
+      } catch (e) {
+        print('Error loading restaurant data: $e');
       }
+    } else {
+      print('No user logged in');
     }
   }
 
@@ -140,10 +175,54 @@ class _RestaurantPageState extends State<RestaurantPage> {
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
     
     if (image != null) {
-      // TODO: Upload image to Firebase Storage and update restaurant profile
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile image updated')),
-      );
+      setState(() => _isLoading = true);
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) throw Exception('User not logged in');
+
+        // Upload image to Firebase Storage
+        final storageRef = FirebaseStorage.instance
+            .ref()
+            .child('restaurants')
+            .child(user.uid)
+            .child('profile_image');
+        
+        await storageRef.putFile(File(image.path));
+        final imageUrl = await storageRef.getDownloadURL();
+
+        // Update restaurant profile image in database
+        await FirebaseDatabase.instance
+            .ref()
+            .child('restaurants')
+            .child(user.uid)
+            .update({
+          'profileImageUrl': imageUrl,
+          'updatedAt': ServerValue.timestamp,
+        });
+
+        // Update local state
+        if (_restaurant != null) {
+          setState(() {
+            _restaurant = _restaurant!.copyWith(profileImageUrl: imageUrl);
+          });
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile image updated successfully')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error updating profile image: $e')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
     }
   }
 
@@ -177,11 +256,22 @@ class _RestaurantPageState extends State<RestaurantPage> {
 
   Future<void> _saveStoreSettings() async {
     if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
       try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) throw Exception('User not logged in');
+
+        // Check if email is being changed
+        if (_emailController.text != user.email) {
+          // Update email in Firebase Auth
+          await user.updateEmail(_emailController.text);
+        }
+
+        // Update restaurant data in database
         await FirebaseDatabase.instance
             .ref()
             .child('restaurants')
-            .child(_user!.uid)
+            .child(user.uid)
             .update({
           'fullName': _nameController.text,
           'email': _emailController.text,
@@ -192,6 +282,20 @@ class _RestaurantPageState extends State<RestaurantPage> {
           'updatedAt': ServerValue.timestamp,
         });
         
+        // Update local state
+        if (_restaurant != null) {
+          setState(() {
+            _restaurant = _restaurant!.copyWith(
+              fullName: _nameController.text,
+              email: _emailController.text,
+              phone: _phoneController.text,
+              address: _addressController.text,
+              about: _aboutController.text,
+              hours: _businessHours,
+            );
+          });
+        }
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Store settings updated successfully')),
@@ -200,11 +304,15 @@ class _RestaurantPageState extends State<RestaurantPage> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Error updating store settings'),
+            SnackBar(
+              content: Text('Error updating store settings: $e'),
               backgroundColor: Colors.red,
             ),
           );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
         }
       }
     }
@@ -501,55 +609,330 @@ class _RestaurantPageState extends State<RestaurantPage> {
   }
 
   Widget _buildMenuTab() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.restaurant_menu,
-            size: 64,
-            color: Colors.grey,
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'No Menu Items',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Add your first menu item',
-            style: TextStyle(
-              color: Colors.grey,
-            ),
-          ),
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AddMenuItemPage(),
+    return StreamBuilder(
+      stream: FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(_user!.uid)
+          .child('menu_items')
+          .onValue,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error: ${snapshot.error}'),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        final menuItems = snapshot.data?.snapshot.value as Map?;
+        _menuItemsCount.value = menuItems?.length ?? 0;
+
+        if (menuItems == null || menuItems.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.restaurant_menu,
+                  size: 64,
+                  color: Colors.grey,
                 ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFF4A261),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+                const SizedBox(height: 16),
+                const Text(
+                  'No Menu Items',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Add your first menu item',
+                  style: TextStyle(
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AddMenuItemPage(),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF4A261),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  icon: const Icon(Icons.add),
+                  label: const Text(
+                    'Add Item',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Filter menu items based on search query
+        final filteredItems = menuItems.entries.where((entry) {
+          final item = entry.value as Map;
+          final name = (item['name'] ?? '').toString().toLowerCase();
+          final description = (item['description'] ?? '').toString().toLowerCase();
+          final searchLower = _searchQuery.toLowerCase();
+          
+          return name.contains(searchLower) || description.contains(searchLower);
+        }).toList();
+
+        return Stack(
+          children: [
+            Column(
+              children: [
+                // Search Bar
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search menu items...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                setState(() {
+                                  _searchController.clear();
+                                  _searchQuery = '';
+                                });
+                              },
+                            )
+                          : null,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                      });
+                    },
+                  ),
+                ),
+                // Menu Items List
+                Expanded(
+                  child: filteredItems.isEmpty && _searchQuery.isNotEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.search_off,
+                                size: 64,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'No Results Found',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'No menu items match "$_searchQuery"',
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: filteredItems.length,
+                          itemBuilder: (context, index) {
+                            final entry = filteredItems[index];
+                            final item = entry.value as Map;
+                            
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 16),
+                              child: Column(
+                                children: [
+                                  if (item['imageUrl'] != null)
+                                    ClipRRect(
+                                      borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                                      child: Image.network(
+                                        item['imageUrl'],
+                                        height: 200,
+                                        width: double.infinity,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                  ListTile(
+                                    title: Text(
+                                      item['name'] ?? 'Unnamed Item',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(item['description'] ?? ''),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '\$${(item['price'] ?? 0.0).toStringAsFixed(2)}',
+                                          style: const TextStyle(
+                                            color: Colors.green,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    trailing: IconButton(
+                                      icon: const Icon(Icons.delete, color: Colors.red),
+                                      onPressed: () async {
+                                        final confirm = await showDialog<bool>(
+                                          context: context,
+                                          builder: (context) => AlertDialog(
+                                            title: const Text('Delete Menu Item'),
+                                            content: const Text('Are you sure you want to delete this menu item?'),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(context, false),
+                                                child: const Text('Cancel'),
+                                              ),
+                                              ElevatedButton(
+                                                onPressed: () => Navigator.pop(context, true),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: Colors.red,
+                                                ),
+                                                child: const Text('Delete'),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+
+                                        if (confirm == true) {
+                                          try {
+                                            await FirebaseDatabase.instance
+                                                .ref()
+                                                .child('restaurants')
+                                                .child(_user!.uid)
+                                                .child('menu_items')
+                                                .child(entry.key)
+                                                .remove();
+                                            
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Menu item deleted successfully')),
+                                              );
+                                            }
+                                          } catch (e) {
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(content: Text('Error deleting menu item: $e')),
+                                              );
+                                            }
+                                          }
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+            // Bottom Add Item Button
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 4,
+                      offset: const Offset(0, -2),
+                    ),
+                  ],
+                ),
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AddMenuItemPage(),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF4A261),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  icon: const Icon(Icons.add),
+                  label: const Text(
+                    'Add Item',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               ),
             ),
-            icon: const Icon(Icons.add),
-            label: const Text(
-              'Add Item',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
               ),
             ),
+          ),
+          Expanded(
+            child: Text(value),
           ),
         ],
       ),
@@ -575,7 +958,12 @@ class _RestaurantPageState extends State<RestaurantPage> {
                       CircleAvatar(
                         radius: 50,
                         backgroundColor: Colors.grey[200],
-                        child: const Icon(Icons.restaurant, size: 50),
+                        backgroundImage: _restaurant?.profileImageUrl != null
+                            ? NetworkImage(_restaurant!.profileImageUrl!)
+                            : null,
+                        child: _restaurant?.profileImageUrl == null
+                            ? const Icon(Icons.restaurant, size: 50)
+                            : null,
                       ),
                       Positioned(
                         right: 0,
@@ -583,11 +971,20 @@ class _RestaurantPageState extends State<RestaurantPage> {
                         child: CircleAvatar(
                           backgroundColor: const Color(0xFFF4A261),
                           radius: 18,
-                          child: IconButton(
-                            icon: const Icon(Icons.camera_alt, size: 18),
-                            onPressed: _pickImage,
-                            color: Colors.white,
-                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                )
+                              : IconButton(
+                                  icon: const Icon(Icons.camera_alt, size: 18),
+                                  onPressed: _pickImage,
+                                  color: Colors.white,
+                                ),
                         ),
                       ),
                     ],
@@ -598,6 +995,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
+                      color: Colors.red,
                     ),
                   ),
                   Text(
@@ -880,6 +1278,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
           _restaurant?.fullName ?? 'Restaurant',
           style: TextStyle(
             color: Theme.of(context).textTheme.titleLarge?.color,
+            fontWeight: FontWeight.bold,
           ),
         ),
         actions: [
@@ -918,6 +1317,35 @@ class _RestaurantPageState extends State<RestaurantPage> {
           _buildAccountTab(),
         ],
       ),
+      floatingActionButton: ValueListenableBuilder<int>(
+        valueListenable: _menuItemsCount,
+        builder: (context, count, child) {
+          if (_selectedIndex == 1 && count > 0) {
+            return FloatingActionButton.extended(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AddMenuItemPage(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.add),
+              label: const Text(
+                'Add Item',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              backgroundColor: const Color(0xFFF4A261),
+              elevation: 4,
+            );
+          }
+          return const SizedBox.shrink();
+        },
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (index) {
@@ -925,6 +1353,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
             _selectedIndex = index;
           });
         },
+        type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.receipt_long),

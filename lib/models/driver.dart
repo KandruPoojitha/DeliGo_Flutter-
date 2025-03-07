@@ -5,8 +5,8 @@ class Driver {
   final String phone;
   final String role;
   final bool documentsSubmitted;
-  final String status;
   final Map<String, dynamic>? documents;
+  final String status;
   final String createdAt;
   final String? updatedAt;
 
@@ -17,8 +17,8 @@ class Driver {
     required this.phone,
     required this.role,
     required this.documentsSubmitted,
-    required this.status,
     this.documents,
+    required this.status,
     required this.createdAt,
     this.updatedAt,
   });
@@ -33,8 +33,8 @@ class Driver {
       phone: json['phone'] ?? '',
       role: json['role'] ?? '',
       documentsSubmitted: json['documentsSubmitted'] ?? false,
-      status: json['status'] ?? 'pending_review',
       documents: json['documents'],
+      status: json['status'] ?? 'pending_review',
       createdAt: json['createdAt'] ?? '',
       updatedAt: json['updatedAt'],
     );
@@ -48,8 +48,8 @@ class Driver {
       'phone': phone,
       'role': role,
       'documentsSubmitted': documentsSubmitted,
-      'status': status,
       'documents': documents,
+      'status': status,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
     };

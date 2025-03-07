@@ -30,6 +30,11 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
     'Beverage',
   ];
 
+  @override
+  void initState() {
+    super.initState();
+  }
+
   Future<void> _pickImage() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
@@ -46,6 +51,7 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
     String selectedType = 'Single Selection';
     bool isRequired = false;
     List<Map<String, dynamic>> options = [];
+    int? maxSelections;
 
     await showDialog(
       context: context,
@@ -91,6 +97,23 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                     });
                   },
                 ),
+                const SizedBox(height: 16),
+                if (selectedType == 'Multiple Selection')
+                  TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Max Selections',
+                      border: OutlineInputBorder(),
+                      hintText: 'Enter maximum number of options that can be selected',
+                    ),
+                    keyboardType: TextInputType.number,
+                    onChanged: (value) {
+                      if (value.isNotEmpty) {
+                        setState(() {
+                          maxSelections = int.tryParse(value);
+                        });
+                      }
+                    },
+                  ),
                 const SizedBox(height: 16),
                 SwitchListTile(
                   title: const Text('Required'),
@@ -190,7 +213,7 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                         final option = entry.value;
                         return ListTile(
                           title: Text(option['name']),
-                          subtitle: Text('\$${option['price'].toStringAsFixed(2)}'),
+                          subtitle: Text('\$${(option['price'] ?? 0.0).toStringAsFixed(2)}'),
                           trailing: IconButton(
                             icon: const Icon(Icons.delete),
                             onPressed: () {
@@ -219,6 +242,7 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                       'name': nameController.text,
                       'type': selectedType,
                       'isRequired': isRequired,
+                      'maxSelections': selectedType == 'Single Selection' ? 1 : maxSelections,
                       'options': options,
                     });
                   });
@@ -474,7 +498,7 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                             return Card(
                               child: ListTile(
                                 title: Text(option['name']),
-                                subtitle: Text('\$${option['price'].toStringAsFixed(2)}'),
+                                subtitle: Text('\$${(option['price'] ?? 0.0).toStringAsFixed(2)}'),
                                 trailing: IconButton(
                                   icon: const Icon(Icons.delete),
                                   onPressed: () {
@@ -532,5 +556,185 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
     _descriptionController.dispose();
     _priceController.dispose();
     super.dispose();
+  }
+
+  Widget _buildMenuTab() {
+    return StreamBuilder(
+      stream: FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(FirebaseAuth.instance.currentUser!.uid)
+          .child('menu_items')
+          .onValue,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error: ${snapshot.error}'),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        final menuItems = snapshot.data?.snapshot.value as Map?;
+        if (menuItems == null || menuItems.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.restaurant_menu,
+                  size: 64,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'No Menu Items',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Add your first menu item',
+                  style: TextStyle(
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AddMenuItemPage(),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF4A261),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  icon: const Icon(Icons.add),
+                  label: const Text(
+                    'Add Item',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: menuItems.length,
+          itemBuilder: (context, index) {
+            final itemKey = menuItems.keys.elementAt(index);
+            final item = menuItems[itemKey] as Map;
+            
+            return Card(
+              margin: const EdgeInsets.only(bottom: 16),
+              child: Column(
+                children: [
+                  if (item['imageUrl'] != null)
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                      child: Image.network(
+                        item['imageUrl'],
+                        height: 200,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ListTile(
+                    title: Text(
+                      item['name'] ?? 'Unnamed Item',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(item['description'] ?? ''),
+                        const SizedBox(height: 4),
+                        Text(
+                          '\$${(item['price'] ?? 0.0).toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Delete Menu Item'),
+                            content: const Text('Are you sure you want to delete this menu item?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                ),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirm == true) {
+                          try {
+                            await FirebaseDatabase.instance
+                                .ref()
+                                .child('restaurants')
+                                .child(FirebaseAuth.instance.currentUser!.uid)
+                                .child('menu_items')
+                                .child(itemKey)
+                                .remove();
+                            
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Menu item deleted successfully')),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error deleting menu item: $e')),
+                              );
+                            }
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 } 
