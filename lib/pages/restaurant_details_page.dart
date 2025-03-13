@@ -466,6 +466,68 @@ class RestaurantDetailsPage extends StatefulWidget {
 class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  Set<String> _favoriteItems = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFavorites();
+  }
+
+  Future<void> _loadFavorites() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
+    try {
+      final snapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('customers')
+          .child(userId)
+          .child('favorites')
+          .get();
+
+      if (snapshot.exists) {
+        final favorites = snapshot.value as Map;
+        setState(() {
+          _favoriteItems = Set<String>.from(favorites.keys);
+        });
+      }
+    } catch (e) {
+      print('Error loading favorites: $e');
+    }
+  }
+
+  Future<void> _toggleFavorite(String itemId) async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
+    try {
+      final isFavorite = _favoriteItems.contains(itemId);
+      final ref = FirebaseDatabase.instance
+          .ref()
+          .child('customers')
+          .child(userId)
+          .child('favorites')
+          .child(itemId);
+
+      if (isFavorite) {
+        await ref.remove();
+        setState(() {
+          _favoriteItems.remove(itemId);
+        });
+      } else {
+        await ref.set(true);
+        setState(() {
+          _favoriteItems.add(itemId);
+        });
+      }
+    } catch (e) {
+      print('Error toggling favorite: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error updating favorite: $e')),
+      );
+    }
+  }
 
   Widget _buildMenuItemCard(String itemId, Map<String, dynamic> item) {
     return Card(
@@ -528,12 +590,61 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      item['name'] ?? 'Unnamed Item',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item['name'] ?? 'Unnamed Item',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        StreamBuilder(
+                          stream: FirebaseDatabase.instance
+                              .ref()
+                              .child('customers')
+                              .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+                              .child('favorites')
+                              .child(itemId)
+                              .onValue,
+                          builder: (context, snapshot) {
+                            final isFavorite = snapshot.data?.snapshot.value == true;
+                            return IconButton(
+                              icon: Icon(
+                                isFavorite ? Icons.favorite : Icons.favorite_border,
+                                color: isFavorite ? Colors.red : Colors.grey,
+                              ),
+                              onPressed: () async {
+                                try {
+                                  final ref = FirebaseDatabase.instance
+                                      .ref()
+                                      .child('customers')
+                                      .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+                                      .child('favorites')
+                                      .child(itemId);
+                                  
+                                  if (isFavorite) {
+                                    await ref.remove();
+                                  } else {
+                                    await ref.set(true);
+                                  }
+                                } catch (e) {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Error updating favorites: $e')),
+                                    );
+                                  }
+                                }
+                              },
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                     if (item['description'] != null) ...[
                       const SizedBox(height: 4),
@@ -569,17 +680,130 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.restaurant['fullName'] ?? 'Restaurant',
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        title: Text(widget.restaurant['store_info']?['name'] ?? 'Restaurant Details'),
         backgroundColor: const Color(0xFFF4A261),
         foregroundColor: Colors.white,
       ),
       body: Column(
         children: [
+          // Restaurant Info Header
+          Container(
+            color: Colors.white,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Restaurant Image
+                Container(
+                  height: 200,
+                  width: double.infinity,
+                  child: widget.restaurant['store_info']?['imageUrl'] != null
+                      ? Image.network(
+                          widget.restaurant['store_info']?['imageUrl'],
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: const Color(0xFFF4A261),
+                              child: Center(
+                                child: Text(
+                                  widget.restaurant['store_info']?['name'] ?? 'Restaurant',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            );
+                          },
+                        )
+                      : Container(
+                          color: const Color(0xFFF4A261),
+                          child: Center(
+                            child: Text(
+                              widget.restaurant['store_info']?['name'] ?? 'Restaurant',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                ),
+                // Restaurant Details
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.restaurant['store_info']?['name'] ?? 'Unnamed Restaurant',
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Description
+                      if (widget.restaurant['store_info']?['description'] != null) ...[
+                        Text(
+                          widget.restaurant['store_info']?['description'],
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      // Address
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.location_on,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              widget.restaurant['store_info']?['address'] ?? 'Address not available',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      // Operating Hours
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.access_time,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              '${widget.restaurant['store_info']?['openingTime'] ?? '9:00 AM'} - ${widget.restaurant['store_info']?['closingTime'] ?? '10:00 PM'}',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           // Search Bar
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -612,7 +836,6 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
               },
             ),
           ),
-
           // Menu Items List
           Expanded(
             child: StreamBuilder(

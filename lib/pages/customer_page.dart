@@ -1,8 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:geolocator/geolocator.dart';
 import 'login_page.dart';
 import 'restaurant_details_page.dart';
+import 'checkout_page.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -17,11 +19,103 @@ class _CustomerPageState extends State<CustomerPage> {
   final _database = FirebaseDatabase.instance;
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  Position? _currentPosition;
+  bool _isLoadingLocation = false;
+  List<MapEntry> _filteredRestaurants = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocation();
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _getCurrentLocation() async {
+    setState(() => _isLoadingLocation = true);
+    try {
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Location services are disabled.');
+      }
+
+      // Check location permission
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw Exception('Location permissions are denied.');
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception('Location permissions are permanently denied.');
+      }
+
+      // Get current position
+      Position position = await Geolocator.getCurrentPosition();
+      if (mounted) {
+        setState(() {
+          _currentPosition = position;
+          _isLoadingLocation = false;
+          // Sort restaurants when location is updated
+          _sortRestaurantsByDistance();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error getting location: $e')),
+        );
+        setState(() => _isLoadingLocation = false);
+      }
+    }
+  }
+
+  void _sortRestaurantsByDistance() {
+    if (_currentPosition == null) return;
+    
+    _filteredRestaurants.sort((a, b) {
+      final distanceA = _calculateDistance(a.value as Map);
+      final distanceB = _calculateDistance(b.value as Map);
+      // Put restaurants with unavailable distances at the end
+      if (distanceA == -1) return 1;
+      if (distanceB == -1) return -1;
+      // Sort by distance (nearest first)
+      return distanceA.compareTo(distanceB);
+    });
+  }
+
+  double _calculateDistance(Map restaurant) {
+    if (_currentPosition == null) return -1;
+    
+    final location = restaurant['location'] as Map?;
+    if (location == null) return -1;
+
+    final latitude = location['latitude'] as double?;
+    final longitude = location['longitude'] as double?;
+    
+    if (latitude == null || longitude == null) return -1;
+
+    return Geolocator.distanceBetween(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+      latitude,
+      longitude,
+    ) / 1000; // Convert meters to kilometers
+  }
+
+  String _formatDistance(double distanceInKm) {
+    if (distanceInKm < 0) return 'Distance not available';
+    if (distanceInKm < 1) {
+      return '${(distanceInKm * 1000).toStringAsFixed(0)}m away';
+    }
+    return '${distanceInKm.toStringAsFixed(1)}km away';
   }
 
   Future<void> _signOut(BuildContext context) async {
@@ -100,10 +194,63 @@ class _CustomerPageState extends State<CustomerPage> {
             },
           ),
         ),
+        // Current Location Display
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: Row(
+            children: [
+              Icon(
+                Icons.location_on,
+                size: 16,
+                color: Colors.grey[600],
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _isLoadingLocation
+                      ? 'Getting your location...'
+                      : _currentPosition != null
+                          ? 'Your location: ${_currentPosition!.latitude.toStringAsFixed(4)}, ${_currentPosition!.longitude.toStringAsFixed(4)}'
+                          : 'Location not available',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Sort by Distance Button
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _currentPosition != null
+                  ? () {
+                      setState(() {
+                        _sortRestaurantsByDistance();
+                      });
+                    }
+                  : null,
+              icon: const Icon(Icons.sort),
+              label: const Text('Sort by Distance (Nearest First)'),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFF4A261),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              ),
+            ),
+          ),
+        ),
         // Restaurant List
         Expanded(
           child: StreamBuilder(
-            stream: _database.ref('restaurants').onValue,
+            stream: FirebaseDatabase.instance
+                .ref()
+                .child('restaurants')
+                .onValue,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Center(
@@ -139,7 +286,7 @@ class _CustomerPageState extends State<CustomerPage> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Try adjusting your filters',
+                        'Restaurants will appear here',
                         style: TextStyle(
                           color: Colors.grey,
                         ),
@@ -150,18 +297,28 @@ class _CustomerPageState extends State<CustomerPage> {
               }
 
               // Filter restaurants based on search query and approval status
-              final filteredRestaurants = restaurants.entries.where((entry) {
+              _filteredRestaurants = restaurants.entries.where((entry) {
                 final restaurant = entry.value as Map;
-                final name = (restaurant['fullName'] ?? '').toString().toLowerCase();
-                final address = (restaurant['address'] ?? '').toString().toLowerCase();
-                final searchLower = _searchQuery.toLowerCase();
-                final isApproved = restaurant['documents']?['status'] == 'approved';
+                final storeInfo = restaurant['store_info'] as Map?;
+                if (storeInfo == null) return false;
+
+                // Check if restaurant is approved
+                final documents = restaurant['documents'] as Map?;
+                if (documents == null || documents['status'] != 'approved') return false;
                 
-                return isApproved && 
-                       (name.contains(searchLower) || address.contains(searchLower));
+                final name = (storeInfo['name'] ?? '').toString().toLowerCase();
+                final address = (storeInfo['address'] ?? '').toString().toLowerCase();
+                final searchLower = _searchQuery.toLowerCase();
+                
+                return name.contains(searchLower) || address.contains(searchLower);
               }).toList();
 
-              if (filteredRestaurants.isEmpty) {
+              // Sort restaurants by distance if location is available
+              if (_currentPosition != null) {
+                _sortRestaurantsByDistance();
+              }
+
+              if (_filteredRestaurants.isEmpty) {
                 return Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -182,7 +339,7 @@ class _CustomerPageState extends State<CustomerPage> {
                       const SizedBox(height: 8),
                       Text(
                         _searchQuery.isNotEmpty 
-                            ? 'Try adjusting your search'
+                            ? 'No restaurants match "$_searchQuery"'
                             : 'No approved restaurants available',
                         style: const TextStyle(
                           color: Colors.grey,
@@ -195,10 +352,12 @@ class _CustomerPageState extends State<CustomerPage> {
 
               return ListView.builder(
                 padding: const EdgeInsets.all(16),
-                itemCount: filteredRestaurants.length,
+                itemCount: _filteredRestaurants.length,
                 itemBuilder: (context, index) {
-                  final entry = filteredRestaurants[index];
+                  final entry = _filteredRestaurants[index];
                   final restaurant = entry.value as Map;
+                  final storeInfo = restaurant['store_info'] as Map? ?? {};
+                  final distance = _calculateDistance(restaurant);
                   
                   return Card(
                     margin: const EdgeInsets.only(bottom: 16),
@@ -206,36 +365,75 @@ class _CustomerPageState extends State<CustomerPage> {
                       leading: CircleAvatar(
                         backgroundColor: const Color(0xFFF4A261),
                         child: Text(
-                          (restaurant['fullName'] ?? 'R')[0].toUpperCase(),
+                          (storeInfo['name'] ?? 'R')[0].toUpperCase(),
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
-                      title: Text(
-                        restaurant['fullName'] ?? 'Unnamed Restaurant',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              storeInfo['name'] ?? 'Unnamed Restaurant',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                          if (!_isLoadingLocation) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              _formatDistance(distance),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(restaurant['address'] ?? 'No address'),
-                          if (restaurant['hours'] != null && 
-                              restaurant['hours'] is Map && 
-                              (restaurant['hours'] as Map)['isOpen'] != null)
-                            Text(
-                              (restaurant['hours'] as Map)['isOpen'] == true ? 'Open' : 'Closed',
-                              style: TextStyle(
-                                color: (restaurant['hours'] as Map)['isOpen'] == true
-                                    ? Colors.green 
-                                    : Colors.red,
-                                fontWeight: FontWeight.bold,
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.star,
+                                size: 16,
+                                color: Colors.amber[700],
                               ),
-                            ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${(storeInfo['rating'] ?? 0.0).toStringAsFixed(1)}',
+                                style: TextStyle(
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(
+                                restaurant['isOpen'] == true ? Icons.circle : Icons.circle_outlined,
+                                size: 12,
+                                color: restaurant['isOpen'] == true ? Colors.green : Colors.red,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                restaurant['isOpen'] == true ? 'Open' : 'Closed',
+                                style: TextStyle(
+                                  color: restaurant['isOpen'] == true ? Colors.green : Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
@@ -263,10 +461,10 @@ class _CustomerPageState extends State<CustomerPage> {
 
   Widget _buildFavoritesTab() {
     return StreamBuilder(
-      stream: _database
+      stream: FirebaseDatabase.instance
           .ref()
           .child('customers')
-          .child(_auth.currentUser?.uid ?? '')
+          .child(FirebaseAuth.instance.currentUser?.uid ?? '')
           .child('favorites')
           .onValue,
       builder: (context, snapshot) {
@@ -283,7 +481,6 @@ class _CustomerPageState extends State<CustomerPage> {
         }
 
         final favorites = snapshot.data?.snapshot.value as Map?;
-
         if (favorites == null || favorites.isEmpty) {
           return Center(
             child: Column(
@@ -296,7 +493,7 @@ class _CustomerPageState extends State<CustomerPage> {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'No Favorites Yet',
+                  'No Favorite Items',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -304,7 +501,7 @@ class _CustomerPageState extends State<CustomerPage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Items you favorite will appear here',
+                  'Your favorite items will appear here',
                   style: TextStyle(
                     color: Colors.grey,
                   ),
@@ -314,107 +511,231 @@ class _CustomerPageState extends State<CustomerPage> {
           );
         }
 
-        // Convert favorites to a list and sort by most recently added
-        final favoritesList = favorites.entries.map((entry) {
-          final item = entry.value as Map<dynamic, dynamic>;
-          return {
-            'id': entry.key,
-            ...Map<String, dynamic>.from(item),
-          };
-        }).toList()
-          ..sort((a, b) => (b['addedAt'] ?? 0).compareTo(a['addedAt'] ?? 0));
+        // Get all favorite item IDs (only include items where the value is true)
+        final favoriteItemIds = favorites.entries
+            .where((entry) => entry.value == true)
+            .map((entry) => entry.key)
+            .toList();
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: favoritesList.length,
-          itemBuilder: (context, index) {
-            final item = favoritesList[index];
-            
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8.0),
-              child: ListTile(
-                contentPadding: const EdgeInsets.all(16.0),
-                title: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        // Stream for all restaurants to get menu items
+        return StreamBuilder(
+          stream: FirebaseDatabase.instance
+              .ref()
+              .child('restaurants')
+              .onValue,
+          builder: (context, restaurantSnapshot) {
+            if (restaurantSnapshot.hasError) {
+              return Center(
+                child: Text('Error: ${restaurantSnapshot.error}'),
+              );
+            }
+
+            if (restaurantSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
+
+            final restaurants = restaurantSnapshot.data?.snapshot.value as Map?;
+            if (restaurants == null) {
+              return const Center(
+                child: Text('No restaurants available'),
+              );
+            }
+
+            // Collect all favorite menu items
+            List<Map<String, dynamic>> favoriteItems = [];
+            for (var restaurant in restaurants.entries) {
+              final restaurantId = restaurant.key;
+              final restaurantData = restaurant.value as Map;
+              final menuItems = restaurantData['menu_items'] as Map?;
+              
+              if (menuItems != null) {
+                for (var menuItem in menuItems.entries) {
+                  final itemId = menuItem.key;
+                  if (favoriteItemIds.contains(itemId)) {
+                    final itemData = menuItem.value as Map;
+                    favoriteItems.add({
+                      'id': itemId,
+                      'restaurantId': restaurantId,
+                      'restaurantName': restaurantData['store_info']?['name'] ?? 'Unknown Restaurant',
+                      ...itemData,
+                    });
+                  }
+                }
+              }
+            }
+
+            if (favoriteItems.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      item['restaurantName'] ?? 'Unknown Restaurant',
-                      style: const TextStyle(
-                        fontSize: 14,
+                    const Icon(
+                      Icons.favorite_border,
+                      size: 64,
+                      color: Colors.grey,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'No Favorite Items Found',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Add items to your favorites to see them here',
+                      style: TextStyle(
                         color: Colors.grey,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item['name'] ?? 'Unnamed Item',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
                   ],
                 ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (item['description'] != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        item['description'],
-                        style: const TextStyle(
-                          color: Colors.grey,
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: favoriteItems.length,
+              itemBuilder: (context, index) {
+                final item = favoriteItems[index];
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: InkWell(
+                    onTap: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => MenuItemDetailsDialog(
+                          item: Map<String, dynamic>.from({
+                            ...item,
+                            'id': item['id'],
+                          }),
+                          restaurantId: item['restaurantId'],
+                          restaurantName: item['restaurantName'],
                         ),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Text(
-                      '\$${(item['price'] ?? 0.0).toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: Color(0xFFF4A261),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Item Image
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: item['imageUrl'] != null
+                                ? Image.network(
+                                    item['imageUrl'],
+                                    width: 100,
+                                    height: 100,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Container(
+                                        width: 100,
+                                        height: 100,
+                                        color: Colors.grey[200],
+                                        child: const Icon(
+                                          Icons.restaurant,
+                                          color: Colors.grey,
+                                          size: 40,
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : Container(
+                                    width: 100,
+                                    height: 100,
+                                    color: Colors.grey[200],
+                                    child: const Icon(
+                                      Icons.restaurant,
+                                      color: Colors.grey,
+                                      size: 40,
+                                    ),
+                                  ),
+                          ),
+                          const SizedBox(width: 16),
+                          // Item Details
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        item['name'] ?? 'Unnamed Item',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.favorite,
+                                        color: Colors.red,
+                                      ),
+                                      onPressed: () async {
+                                        try {
+                                          await FirebaseDatabase.instance
+                                              .ref()
+                                              .child('customers')
+                                              .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+                                              .child('favorites')
+                                              .child(item['id'])
+                                              .set(false);
+                                        } catch (e) {
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('Error removing from favorites: $e')),
+                                            );
+                                          }
+                                        }
+                                      },
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  item['restaurantName'],
+                                  style: const TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                if (item['description'] != null) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    item['description'],
+                                    style: const TextStyle(
+                                      color: Colors.grey,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                                const SizedBox(height: 8),
+                                Text(
+                                  '\$${(item['price'] ?? 0.0).toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFF4A261),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-                trailing: IconButton(
-                  icon: const Icon(
-                    Icons.favorite,
-                    color: Colors.red,
                   ),
-                  onPressed: () async {
-                    try {
-                      await _database
-                          .ref()
-                          .child('customers')
-                          .child(_auth.currentUser?.uid ?? '')
-                          .child('favorites')
-                          .child(item['id'])
-                          .remove();
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Error removing from favorites: $e')),
-                        );
-                      }
-                    }
-                  },
-                ),
-                onTap: () {
-                  // Navigate to the restaurant details page
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => RestaurantDetailsPage(
-                        restaurantId: item['restaurantId'],
-                        restaurant: {
-                          'fullName': item['restaurantName'],
-                        },
-                      ),
-                    ),
-                  );
-                },
-              ),
+                );
+              },
             );
           },
         );
@@ -422,9 +743,382 @@ class _CustomerPageState extends State<CustomerPage> {
     );
   }
 
+  void _showCustomizationDialog(Map item, String itemId) {
+    showDialog(
+      context: context,
+      builder: (context) => CustomizationDialog(
+        item: item,
+        itemId: itemId,
+        onSave: (Map<String, dynamic> updatedCustomizations) async {
+          try {
+            // Calculate new total price based on customizations
+            double basePrice = (item['price'] ?? 0.0).toDouble();
+            double customizationTotal = 0;
+            
+            // Sum up all customization prices
+            updatedCustomizations.forEach((key, value) {
+              if (value is Map && value['selected'] == true) {
+                customizationTotal += (value['price'] ?? 0.0).toDouble();
+              }
+            });
+
+            // Update cart item with new customizations and total price
+            await FirebaseDatabase.instance
+                .ref()
+                .child('customers')
+                .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+                .child('cart')
+                .child(itemId)
+                .update({
+              'customizations': updatedCustomizations,
+              'totalPrice': (basePrice + customizationTotal) * (item['quantity'] ?? 1),
+            });
+
+            if (mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Customizations updated successfully')),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Error updating customizations: $e')),
+              );
+            }
+          }
+        },
+      ),
+    );
+  }
+
   Widget _buildCartTab() {
-    return const Center(
-      child: Text('Cart Tab'),
+    return StreamBuilder(
+      stream: FirebaseDatabase.instance
+          .ref()
+          .child('customers')
+          .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+          .child('cart')
+          .onValue,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error: ${snapshot.error}'),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        final cartItems = snapshot.data?.snapshot.value as Map?;
+        if (cartItems == null || cartItems.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.shopping_cart_outlined,
+                  size: 64,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Your Cart is Empty',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Add items to your cart to see them here',
+                  style: TextStyle(
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Calculate total price
+        double totalPrice = 0;
+        for (var item in cartItems.values) {
+          totalPrice += (item['totalPrice'] ?? 0.0).toDouble();
+        }
+
+        return Column(
+          children: [
+            // Cart Items List
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: cartItems.length,
+                itemBuilder: (context, index) {
+                  final itemId = cartItems.keys.elementAt(index);
+                  final item = cartItems[itemId] as Map;
+                  
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Item Image
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: item['imageUrl'] != null
+                                ? Image.network(
+                                    item['imageUrl'],
+                                    width: 80,
+                                    height: 80,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Container(
+                                        width: 80,
+                                        height: 80,
+                                        color: Colors.grey[200],
+                                        child: const Icon(
+                                          Icons.restaurant,
+                                          color: Colors.grey,
+                                          size: 32,
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : Container(
+                                    width: 80,
+                                    height: 80,
+                                    color: Colors.grey[200],
+                                    child: const Icon(
+                                      Icons.restaurant,
+                                      color: Colors.grey,
+                                      size: 32,
+                                    ),
+                                  ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Item Details
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item['name'] ?? 'Unnamed Item',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                Text(
+                                  item['restaurantName'] ?? 'Unknown Restaurant',
+                                  style: const TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                if (item['description'] != null) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    item['description'],
+                                    style: const TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 12,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                                const SizedBox(height: 4),
+                                // Quantity
+                                Row(
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.remove_circle_outline),
+                                      onPressed: () async {
+                                        try {
+                                          final currentQuantity = item['quantity'] as int;
+                                          if (currentQuantity > 1) {
+                                            await FirebaseDatabase.instance
+                                                .ref()
+                                                .child('customers')
+                                                .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+                                                .child('cart')
+                                                .child(itemId)
+                                                .update({
+                                              'quantity': currentQuantity - 1,
+                                              'totalPrice': (item['price'] ?? 0.0) * (currentQuantity - 1),
+                                            });
+                                          } else {
+                                            await FirebaseDatabase.instance
+                                                .ref()
+                                                .child('customers')
+                                                .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+                                                .child('cart')
+                                                .child(itemId)
+                                                .remove();
+                                          }
+                                        } catch (e) {
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('Error updating quantity: $e')),
+                                            );
+                                          }
+                                        }
+                                      },
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                    Text(
+                                      '${item['quantity']}',
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.add_circle_outline),
+                                      onPressed: () async {
+                                        try {
+                                          final currentQuantity = item['quantity'] as int;
+                                          await FirebaseDatabase.instance
+                                              .ref()
+                                              .child('customers')
+                                              .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+                                              .child('cart')
+                                              .child(itemId)
+                                              .update({
+                                            'quantity': currentQuantity + 1,
+                                            'totalPrice': (item['price'] ?? 0.0) * (currentQuantity + 1),
+                                          });
+                                        } catch (e) {
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('Error updating quantity: $e')),
+                                            );
+                                          }
+                                        }
+                                      },
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  '\$${(item['totalPrice'] ?? 0.0).toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFF4A261),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Remove Item Button
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () async {
+                              try {
+                                await FirebaseDatabase.instance
+                                    .ref()
+                                    .child('customers')
+                                    .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+                                    .child('cart')
+                                    .child(itemId)
+                                    .remove();
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Error removing item: $e')),
+                                  );
+                                }
+                              }
+                            },
+                            color: Colors.red,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            // Total Price and Checkout Button
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withOpacity(0.2),
+                    spreadRadius: 1,
+                    blurRadius: 4,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        '\$${totalPrice.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFF4A261),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF4A261),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => CheckoutPage(
+                              cartItems: Map<String, dynamic>.from(cartItems),
+                              subtotal: totalPrice,
+                            ),
+                          ),
+                        );
+                      },
+                      child: const Text(
+                        'Proceed to Checkout',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -493,6 +1187,100 @@ class _CustomerPageState extends State<CustomerPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class CustomizationDialog extends StatefulWidget {
+  final Map item;
+  final String itemId;
+  final Function(Map<String, dynamic>) onSave;
+
+  const CustomizationDialog({
+    super.key,
+    required this.item,
+    required this.itemId,
+    required this.onSave,
+  });
+
+  @override
+  State<CustomizationDialog> createState() => _CustomizationDialogState();
+}
+
+class _CustomizationDialogState extends State<CustomizationDialog> {
+  late Map<String, dynamic> _customizations;
+
+  @override
+  void initState() {
+    super.initState();
+    _customizations = Map<String, dynamic>.from(widget.item['customizations'] ?? {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Customize ${widget.item['name']}'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_customizations.isEmpty)
+              const Text('No customization options available')
+            else
+              ..._customizations.entries.map((entry) {
+                final option = entry.value as Map;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.key,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...(option['options'] as List).map((opt) {
+                      final isSelected = _customizations[entry.key]['selected'] == opt;
+                      return CheckboxListTile(
+                        title: Text(opt),
+                        subtitle: Text(
+                          '+\$${(option['price'] ?? 0.0).toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: Color(0xFFF4A261),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        value: isSelected,
+                        onChanged: (bool? value) {
+                          setState(() {
+                            _customizations[entry.key]['selected'] = value == true ? opt : null;
+                          });
+                        },
+                      );
+                    }).toList(),
+                    const Divider(),
+                  ],
+                );
+              }).toList(),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => widget.onSave(_customizations),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFF4A261),
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 } 

@@ -119,16 +119,41 @@ class _RestaurantPageState extends State<RestaurantPage> {
   void _updateOpenStatus(Restaurant restaurant) {
     if (restaurant.hours != null) {
       final now = DateTime.now();
+      final dayOfWeek = now.weekday;
+      final currentDay = _getDayName(dayOfWeek);
       final currentTime = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
       
-      final openingTime = restaurant.hours!['opening'] as String;
-      final closingTime = restaurant.hours!['closing'] as String;
-      
-      setState(() {
-        _isOpen = currentTime.compareTo(openingTime) >= 0 && 
-                  currentTime.compareTo(closingTime) <= 0 &&
-                  restaurant.hours!['isOpen'] == true;
+      final dayHours = _businessHours[currentDay];
+      if (dayHours != null) {
+        final openingTime = dayHours['opening'] as String;
+        final closingTime = dayHours['closing'] as String;
+        final isDayOpen = dayHours['isOpen'] as bool;
+        
+        final isCurrentlyOpen = isDayOpen && 
+                    currentTime.compareTo(openingTime) >= 0 && 
+                    currentTime.compareTo(closingTime) <= 0;
+
+        setState(() {
+          _isOpen = isCurrentlyOpen;
+        });
+
+        // Update root level isOpen
+        _updateRootIsOpen(isCurrentlyOpen);
+      }
+    }
+  }
+
+  Future<void> _updateRootIsOpen(bool isOpen) async {
+    try {
+      await FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(_user!.uid)
+          .update({
+        'isOpen': isOpen,
       });
+    } catch (e) {
+      print('Error updating root isOpen status: $e');
     }
   }
 
@@ -136,17 +161,32 @@ class _RestaurantPageState extends State<RestaurantPage> {
     if (_restaurant != null) {
       final newStatus = !_isOpen;
       try {
-        await FirebaseDatabase.instance
-            .ref()
-            .child('restaurants')
-            .child(_user!.uid)
-            .child('hours')
-            .update({
-          'isOpen': newStatus,
-        });
+        final now = DateTime.now();
+        final currentDay = _getDayName(now.weekday);
+        
+        // Update both store_hours and root level isOpen
+        await Future.wait([
+          FirebaseDatabase.instance
+              .ref()
+              .child('restaurants')
+              .child(_user!.uid)
+              .child('store_hours')
+              .child(currentDay)
+              .update({
+            'isOpen': newStatus,
+          }),
+          FirebaseDatabase.instance
+              .ref()
+              .child('restaurants')
+              .child(_user!.uid)
+              .update({
+            'isOpen': newStatus,
+          })
+        ]);
         
         setState(() {
           _isOpen = newStatus;
+          _businessHours[currentDay]!['isOpen'] = newStatus;
         });
         
         if (mounted) {
@@ -167,6 +207,19 @@ class _RestaurantPageState extends State<RestaurantPage> {
           );
         }
       }
+    }
+  }
+
+  String _getDayName(int weekday) {
+    switch (weekday) {
+      case 1: return 'Monday';
+      case 2: return 'Tuesday';
+      case 3: return 'Wednesday';
+      case 4: return 'Thursday';
+      case 5: return 'Friday';
+      case 6: return 'Saturday';
+      case 7: return 'Sunday';
+      default: return 'Monday';
     }
   }
 
@@ -226,34 +279,6 @@ class _RestaurantPageState extends State<RestaurantPage> {
     }
   }
 
-  Future<void> _selectTime(BuildContext context, String day, bool isOpening) async {
-    final currentTime = _businessHours[day]?[isOpening ? 'opening' : 'closing'] ?? '09:00';
-    final parts = currentTime.split(':');
-    final initialTime = TimeOfDay(
-      hour: int.parse(parts[0]),
-      minute: int.parse(parts[1]),
-    );
-
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: initialTime,
-    );
-    
-    if (picked != null) {
-      setState(() {
-        _businessHours[day]![isOpening ? 'opening' : 'closing'] = 
-            '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-      });
-    }
-  }
-
-  Future<void> _toggleDayOpen(String day) async {
-    setState(() {
-      _businessHours[day]!['isOpen'] = !(_businessHours[day]!['isOpen'] == true);
-    });
-    // TODO: Update in Firebase
-  }
-
   Future<void> _saveStoreSettings() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
@@ -261,24 +286,28 @@ class _RestaurantPageState extends State<RestaurantPage> {
         final user = FirebaseAuth.instance.currentUser;
         if (user == null) throw Exception('User not logged in');
 
-        // Check if email is being changed
-        if (_emailController.text != user.email) {
-          // Update email in Firebase Auth
-          await user.updateEmail(_emailController.text);
-        }
+        // Get current store_info to preserve existing data
+        final snapshot = await FirebaseDatabase.instance
+            .ref()
+            .child('restaurants')
+            .child(user.uid)
+            .child('store_info')
+            .get();
 
-        // Update restaurant data in database
+        final existingStoreInfo = snapshot.value as Map<dynamic, dynamic>? ?? {};
+
+        // Update only phone and description, preserve other fields
         await FirebaseDatabase.instance
             .ref()
             .child('restaurants')
             .child(user.uid)
             .update({
-          'fullName': _nameController.text,
-          'email': _emailController.text,
-          'phone': _phoneController.text,
-          'address': _addressController.text,
-          'about': _aboutController.text,
-          'hours': _businessHours,
+          'store_info': {
+            ...existingStoreInfo,
+            'phone': _phoneController.text,
+            'description': _aboutController.text,
+          },
+          'store_hours': _businessHours,
           'updatedAt': ServerValue.timestamp,
         });
         
@@ -286,10 +315,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
         if (_restaurant != null) {
           setState(() {
             _restaurant = _restaurant!.copyWith(
-              fullName: _nameController.text,
-              email: _emailController.text,
               phone: _phoneController.text,
-              address: _addressController.text,
               about: _aboutController.text,
               hours: _businessHours,
             );
@@ -298,7 +324,10 @@ class _RestaurantPageState extends State<RestaurantPage> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Store settings updated successfully')),
+            const SnackBar(
+              content: Text('Store settings updated successfully'),
+              backgroundColor: Colors.green,
+            ),
           );
         }
       } catch (e) {
@@ -313,6 +342,128 @@ class _RestaurantPageState extends State<RestaurantPage> {
       } finally {
         if (mounted) {
           setState(() => _isLoading = false);
+        }
+      }
+    }
+  }
+
+  Future<void> _toggleDayOpen(String day) async {
+    final newDayStatus = !(_businessHours[day]!['isOpen'] == true);
+    setState(() {
+      _businessHours[day]!['isOpen'] = newDayStatus;
+    });
+    
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User not logged in');
+
+      // Update store_hours in Firebase
+      await FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(user.uid)
+          .child('store_hours')
+          .update({day: _businessHours[day]});
+
+      // Check if current day and update root isOpen if needed
+      final now = DateTime.now();
+      final currentDay = _getDayName(now.weekday);
+      if (day == currentDay) {
+        final dayHours = _businessHours[currentDay]!;
+        final currentTime = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+        final isCurrentlyOpen = newDayStatus &&
+                    currentTime.compareTo(dayHours['opening']) >= 0 && 
+                    currentTime.compareTo(dayHours['closing']) <= 0;
+        
+        await _updateRootIsOpen(isCurrentlyOpen);
+        setState(() {
+          _isOpen = isCurrentlyOpen;
+        });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${day} hours updated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating hours: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _selectTime(BuildContext context, String day, bool isOpening) async {
+    final currentTime = _businessHours[day]?[isOpening ? 'opening' : 'closing'] ?? '09:00';
+    final parts = currentTime.split(':');
+    final initialTime = TimeOfDay(
+      hour: int.parse(parts[0]),
+      minute: int.parse(parts[1]),
+    );
+
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+    );
+    
+    if (picked != null) {
+      final newTime = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      setState(() {
+        _businessHours[day]![isOpening ? 'opening' : 'closing'] = newTime;
+      });
+
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) throw Exception('User not logged in');
+
+        // Update store_hours in Firebase
+        await FirebaseDatabase.instance
+            .ref()
+            .child('restaurants')
+            .child(user.uid)
+            .child('store_hours')
+            .update({day: _businessHours[day]});
+
+        // Check if current day and update root isOpen if needed
+        final now = DateTime.now();
+        final currentDay = _getDayName(now.weekday);
+        if (day == currentDay) {
+          final dayHours = _businessHours[currentDay]!;
+          final currentTimeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+          final isCurrentlyOpen = dayHours['isOpen'] == true &&
+                      currentTimeStr.compareTo(dayHours['opening']) >= 0 && 
+                      currentTimeStr.compareTo(dayHours['closing']) <= 0;
+          
+          await _updateRootIsOpen(isCurrentlyOpen);
+          setState(() {
+            _isOpen = isCurrentlyOpen;
+          });
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${day} hours updated successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error updating hours: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
       }
     }
@@ -990,20 +1141,6 @@ class _RestaurantPageState extends State<RestaurantPage> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  Text(
-                    _restaurant?.fullName ?? 'Restaurant Name',
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red,
-                    ),
-                  ),
-                  Text(
-                    _restaurant?.email ?? '',
-                    style: const TextStyle(
-                      color: Colors.grey,
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -1021,80 +1158,114 @@ class _RestaurantPageState extends State<RestaurantPage> {
             const SizedBox(height: 16),
 
             // Store Information Section
-            Card(
-              child: ExpansionTile(
-                title: const Text(
-                  'Store Information',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
+            ExpansionTile(
+              initiallyExpanded: true,
+              title: const Text(
+                'Store Information',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      // Restaurant Name Field
+                      TextFormField(
+                        controller: _nameController,
+                        enabled: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Restaurant Name',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.restaurant),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Email Field
+                      TextFormField(
+                        controller: _emailController,
+                        enabled: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Email',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.email),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Phone Field
+                      TextFormField(
+                        controller: _phoneController,
+                        decoration: const InputDecoration(
+                          labelText: 'Phone',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.phone),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter phone number';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Address Field
+                      TextFormField(
+                        controller: _addressController,
+                        enabled: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Address',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.location_on),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // About Field
+                      TextFormField(
+                        controller: _aboutController,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'About',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.info),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Save Button
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _saveStoreSettings,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFF4A261),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                )
+                              : const Text(
+                                  'Save Changes',
+                                  style: TextStyle(fontSize: 16),
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                leading: const Icon(Icons.store),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
-                        TextFormField(
-                          controller: _nameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Restaurant Name',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter restaurant name';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _emailController,
-                          decoration: const InputDecoration(
-                            labelText: 'Email',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter email';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _phoneController,
-                          decoration: const InputDecoration(
-                            labelText: 'Phone',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter phone number';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        _buildAddressField(),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _aboutController,
-                          decoration: const InputDecoration(
-                            labelText: 'About',
-                            border: OutlineInputBorder(),
-                          ),
-                          maxLines: 3,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+              ],
             ),
-            const SizedBox(height: 16),
 
             // Store Hours Section
             Card(
@@ -1237,20 +1408,6 @@ class _RestaurantPageState extends State<RestaurantPage> {
               ),
             ),
             const SizedBox(height: 32),
-
-            // Save Button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _saveStoreSettings,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF4A261),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: const Text('Save Changes'),
-              ),
-            ),
-            const SizedBox(height: 16),
 
             // Sign Out Button
             SizedBox(
