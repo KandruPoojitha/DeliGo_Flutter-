@@ -65,10 +65,9 @@ class RestaurantService {
   }
 
   Future<void> updateRestaurantApproval(String uid, bool isApproved) async {
-    await _database.ref().child('restaurants').child(uid).update({
-      'documents.status': isApproved ? 'approved' : 'rejected',
-      'documents.updatedAt': DateTime.now().toIso8601String(),
-      'updatedAt': DateTime.now().toIso8601String(),
+    await _database.ref().child('restaurants').child(uid).child('documents').update({
+      'status': isApproved ? 'approved' : 'rejected',
+      'updatedAt': ServerValue.timestamp,
     });
   }
 
@@ -112,14 +111,17 @@ class RestaurantService {
   Future<Map<String, dynamic>?> getRestaurantData(String uid) async {
     final snapshot = await _database.ref().child('restaurants').child(uid).get();
     if (!snapshot.exists) return null;
-    return snapshot.value as Map<String, dynamic>;
+    
+    final data = snapshot.value as Map<dynamic, dynamic>;
+    return Map<String, dynamic>.from(data);
   }
 
   // Helper method to get raw restaurant data stream
   Stream<Map<String, dynamic>?> getRestaurantDataStream(String uid) {
     return _database.ref().child('restaurants').child(uid).onValue.map((event) {
       if (event.snapshot.exists) {
-        return event.snapshot.value as Map<String, dynamic>;
+        final data = event.snapshot.value as Map<dynamic, dynamic>;
+        return Map<String, dynamic>.from(data);
       }
       return null;
     });

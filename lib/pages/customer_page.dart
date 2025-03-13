@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'login_page.dart';
+import 'restaurant_details_page.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -239,7 +240,15 @@ class _CustomerPageState extends State<CustomerPage> {
                       ),
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                       onTap: () {
-                        // TODO: Navigate to restaurant details page
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => RestaurantDetailsPage(
+                              restaurantId: entry.key,
+                              restaurant: Map<String, dynamic>.from(restaurant),
+                            ),
+                          ),
+                        );
                       },
                     ),
                   );
@@ -253,8 +262,163 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Widget _buildFavoritesTab() {
-    return const Center(
-      child: Text('Favorites Tab'),
+    return StreamBuilder(
+      stream: _database
+          .ref()
+          .child('customers')
+          .child(_auth.currentUser?.uid ?? '')
+          .child('favorites')
+          .onValue,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error: ${snapshot.error}'),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        final favorites = snapshot.data?.snapshot.value as Map?;
+
+        if (favorites == null || favorites.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.favorite_border,
+                  size: 64,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'No Favorites Yet',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Items you favorite will appear here',
+                  style: TextStyle(
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Convert favorites to a list and sort by most recently added
+        final favoritesList = favorites.entries.map((entry) {
+          final item = entry.value as Map<dynamic, dynamic>;
+          return {
+            'id': entry.key,
+            ...Map<String, dynamic>.from(item),
+          };
+        }).toList()
+          ..sort((a, b) => (b['addedAt'] ?? 0).compareTo(a['addedAt'] ?? 0));
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: favoritesList.length,
+          itemBuilder: (context, index) {
+            final item = favoritesList[index];
+            
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8.0),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(16.0),
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item['restaurantName'] ?? 'Unknown Restaurant',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item['name'] ?? 'Unnamed Item',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (item['description'] != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        item['description'],
+                        style: const TextStyle(
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Text(
+                      '\$${(item['price'] ?? 0.0).toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Color(0xFFF4A261),
+                      ),
+                    ),
+                  ],
+                ),
+                trailing: IconButton(
+                  icon: const Icon(
+                    Icons.favorite,
+                    color: Colors.red,
+                  ),
+                  onPressed: () async {
+                    try {
+                      await _database
+                          .ref()
+                          .child('customers')
+                          .child(_auth.currentUser?.uid ?? '')
+                          .child('favorites')
+                          .child(item['id'])
+                          .remove();
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Error removing from favorites: $e')),
+                        );
+                      }
+                    }
+                  },
+                ),
+                onTap: () {
+                  // Navigate to the restaurant details page
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => RestaurantDetailsPage(
+                        restaurantId: item['restaurantId'],
+                        restaurant: {
+                          'fullName': item['restaurantName'],
+                        },
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

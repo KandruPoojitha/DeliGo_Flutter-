@@ -55,22 +55,26 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           
           _users = data.entries.map((entry) {
             final userData = entry.value as Map<dynamic, dynamic>;
+            final storeInfo = userData['store_info'] as Map<dynamic, dynamic>? ?? {};
             return {
               'id': entry.key,
-              'name': userData['fullName'] ?? 'Unknown',
-              'email': userData['email'] ?? '',
-              'phone': userData['phone'] ?? '',
-              'status': userData['documents']?['status'] ?? 'pending_review',
+              'store_info': {
+                'name': storeInfo['name'] ?? 'Unknown',
+                'email': storeInfo['email'] ?? '',
+                'phone': storeInfo['phone'] ?? '',
+                'address': storeInfo['address'] ?? '',
+              },
               'documentsSubmitted': userData['documentsSubmitted'] ?? false,
               'documents': userData['documents'],
               'hours': userData['hours'],
+              'isOpen': userData['isOpen'] ?? false,
               'createdAt': userData['createdAt'],
               'updatedAt': userData['updatedAt'],
             };
           }).toList();
         }
       } else {
-        // Load other users from their respective collections
+
         final collectionName = '${category}s';
         final snapshot = await _database.ref(collectionName).get();
         
@@ -287,22 +291,39 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                     leading: CircleAvatar(
                                       backgroundColor: const Color(0xFFF4A261),
                                       child: Text(
-                                        user['name']?[0] ?? '?',
+                                        _selectedCategory == 'Driver' 
+                                            ? (user['name'] ?? 'Unknown')[0].toUpperCase()
+                                            : (user['store_info']?['name'] ?? 'Unknown')[0].toUpperCase(),
                                         style: const TextStyle(color: Colors.white),
                                       ),
                                     ),
-                                    title: Text(user['name'] ?? 'Unknown'),
+                                    title: Text(_selectedCategory == 'Driver' 
+                                        ? user['name'] ?? 'Unknown'
+                                        : user['store_info']?['name'] ?? 'Unknown'),
                                     subtitle: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(user['email'] ?? ''),
-                                        Text(
-                                          'Status: ${user['status'] ?? 'active'}',
-                                          style: TextStyle(
-                                            color: isBlocked ? Colors.red : Colors.green,
-                                            fontWeight: FontWeight.bold,
+                                        if (_selectedCategory == 'Driver') ...[
+                                          Text(user['email'] ?? ''),
+                                          Text(user['phone'] ?? ''),
+                                          Text(
+                                            'Status: ${user['documents']?['status'] ?? 'pending_review'}',
+                                            style: TextStyle(
+                                              color: user['documents']?['status'] == 'approved' ? Colors.green : Colors.orange,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
-                                        ),
+                                        ] else ...[
+                                          Text(user['store_info']?['email'] ?? ''),
+                                          Text(user['store_info']?['phone'] ?? ''),
+                                          Text(
+                                            'Status: ${user['documents']?['status'] ?? 'pending_review'}',
+                                            style: TextStyle(
+                                              color: user['documents']?['status'] == 'approved' ? Colors.green : Colors.orange,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                     trailing: PopupMenuButton<String>(
@@ -312,10 +333,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                           value: 'view',
                                           child: Text('View Details'),
                                         ),
-                                        if (_selectedCategory == 'Driver' || _selectedCategory == 'Restaurant')
+                                        if (_selectedCategory == 'Restaurant')
                                           PopupMenuItem(
-                                            value: user['status'] == 'approved' ? 'reject' : 'approve',
-                                            child: Text(user['status'] == 'approved' ? 'Reject' : 'Approve'),
+                                            value: user['documents']?['status'] == 'approved' ? 'reject' : 'approve',
+                                            child: Text(user['documents']?['status'] == 'approved' ? 'Reject' : 'Approve'),
                                           ),
                                         PopupMenuItem(
                                           value: isBlocked ? 'unblock' : 'block',
@@ -477,15 +498,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                       decoration: BoxDecoration(
-                        color: user['status'] == 'approved' 
+                        color: user['documents']?['status'] == 'approved' 
                             ? Colors.green.withAlpha(51)
                             : Colors.orange.withAlpha(51),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        user['status'] == 'approved' ? 'Approved' : 'Pending Review',
+                        user['documents']?['status'] == 'approved' ? 'Approved' : 'Pending Review',
                         style: TextStyle(
-                          color: user['status'] == 'approved' ? Colors.green : Colors.orange,
+                          color: user['documents']?['status'] == 'approved' ? Colors.green : Colors.orange,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -493,36 +514,82 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                Text('Name: ${user['name']}'),
-                Text('Email: ${user['email']}'),
-                Text('Phone: ${user['phone']}'),
+                
+                // Store Information
+                Text(
+                  'Store Information',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                if (user['store_info'] != null) ...[
+                  _buildDetailRow('Name', user['store_info']['name'] ?? 'N/A'),
+                  _buildDetailRow('Email', user['store_info']['email'] ?? 'N/A'),
+                  _buildDetailRow('Phone', user['store_info']['phone'] ?? 'N/A'),
+                  _buildDetailRow('Address', user['store_info']['address'] ?? 'N/A'),
+                ],
                 const SizedBox(height: 16),
+
+                // Business Hours
+                if (user['hours'] != null) ...[
+                  Text(
+                    'Business Hours',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildDetailRow('Opening Time', user['hours']['opening'] ?? 'N/A'),
+                  _buildDetailRow('Closing Time', user['hours']['closing'] ?? 'N/A'),
+                  _buildDetailRow('Status', (user['isOpen'] ?? false) ? 'Open' : 'Closed'),
+                ],
+                const SizedBox(height: 16),
+
+                // Documents
                 if (user['documentsSubmitted'] && user['documents'] != null) ...[
                   Text(
                     'Documents',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 8),
-                  if (user['documents']['business_license'] != null) ...[
-                    const Text('Business License:'),
-                    const SizedBox(height: 4),
-                    if (user['documents']['business_license']['url'] != null)
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: CachedNetworkImage(
-                          imageUrl: user['documents']['business_license']['url'],
-                          height: 150,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) => const Center(
-                            child: CircularProgressIndicator(),
+                  if (user['documents']['files'] != null) ...[
+                    if (user['documents']['files']['restaurant_proof'] != null) ...[
+                      const Text('Restaurant Proof:'),
+                      const SizedBox(height: 4),
+                      if (user['documents']['files']['restaurant_proof']['url'] != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: CachedNetworkImage(
+                            imageUrl: user['documents']['files']['restaurant_proof']['url'],
+                            height: 150,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                            errorWidget: (context, url, error) => const Icon(Icons.error),
                           ),
-                          errorWidget: (context, url, error) => const Icon(Icons.error),
                         ),
-                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    if (user['documents']['files']['owner_id'] != null) ...[
+                      const Text('Owner ID:'),
+                      const SizedBox(height: 4),
+                      if (user['documents']['files']['owner_id']['url'] != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: CachedNetworkImage(
+                            imageUrl: user['documents']['files']['owner_id']['url'],
+                            height: 150,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                            errorWidget: (context, url, error) => const Icon(Icons.error),
+                          ),
+                        ),
+                    ],
                   ],
                   const SizedBox(height: 16),
-                  if (user['status'] != 'approved') ...[
+                  if (user['documents']?['status'] != 'approved') ...[
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
@@ -598,15 +665,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                       decoration: BoxDecoration(
-                        color: user['status'] == 'approved' 
+                        color: user['documents']?['status'] == 'approved' 
                             ? Colors.green.withAlpha(51)
                             : Colors.orange.withAlpha(51),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        user['status'] == 'approved' ? 'Approved' : 'Pending Review',
+                        user['documents']?['status'] == 'approved' ? 'Approved' : 'Pending Review',
                         style: TextStyle(
-                          color: user['status'] == 'approved' ? Colors.green : Colors.orange,
+                          color: user['documents']?['status'] == 'approved' ? Colors.green : Colors.orange,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -614,69 +681,64 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                Text('Name: ${user['name']}'),
-                Text('Email: ${user['email']}'),
-                Text('Phone: ${user['phone']}'),
+                
+                // Driver Information
+                Text(
+                  'Driver Information',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                _buildDetailRow('Name', user['name'] ?? 'N/A'),
+                _buildDetailRow('Email', user['email'] ?? 'N/A'),
+                _buildDetailRow('Phone', user['phone'] ?? 'N/A'),
                 const SizedBox(height: 16),
-                if (user['documentsSubmitted'] == true && user['documents'] != null) ...[
+
+                // Documents
+                if (user['documentsSubmitted'] && user['documents'] != null) ...[
                   Text(
                     'Documents',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Driver License:'),
-                            const SizedBox(height: 4),
-                            if (user['documents']['license']?['url'] != null)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: CachedNetworkImage(
-                                  imageUrl: user['documents']['license']['url'],
-                                  height: 150,
-                                  width: double.infinity,
-                                  fit: BoxFit.cover,
-                                  placeholder: (context, url) => const Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                  errorWidget: (context, url, error) => const Icon(Icons.error),
-                                ),
-                              ),
-                          ],
+                  if (user['documents']['license'] != null) ...[
+                    const Text('Driver License:'),
+                    const SizedBox(height: 4),
+                    if (user['documents']['license']['url'] != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: CachedNetworkImage(
+                          imageUrl: user['documents']['license']['url'],
+                          height: 150,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                          errorWidget: (context, url, error) => const Icon(Icons.error),
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Government ID:'),
-                            const SizedBox(height: 4),
-                            if (user['documents']['govt_id']?['url'] != null)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: CachedNetworkImage(
-                                  imageUrl: user['documents']['govt_id']['url'],
-                                  height: 150,
-                                  width: double.infinity,
-                                  fit: BoxFit.cover,
-                                  placeholder: (context, url) => const Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                  errorWidget: (context, url, error) => const Icon(Icons.error),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                  ],
                   const SizedBox(height: 16),
-                  if (user['status'] != 'approved') ...[
+                  if (user['documents']['govt_id'] != null) ...[
+                    const Text('Government ID:'),
+                    const SizedBox(height: 4),
+                    if (user['documents']['govt_id']['url'] != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: CachedNetworkImage(
+                          imageUrl: user['documents']['govt_id']['url'],
+                          height: 150,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                          errorWidget: (context, url, error) => const Icon(Icons.error),
+                        ),
+                      ),
+                  ],
+                  const SizedBox(height: 16),
+                  if (user['documents']?['status'] != 'approved') ...[
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
@@ -853,7 +915,21 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   String _formatDate(dynamic timestamp) {
     if (timestamp == null) return 'N/A';
-    final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    
+    DateTime date;
+    if (timestamp is int) {
+      date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    } else if (timestamp is String) {
+      try {
+        // Try parsing as ISO string
+        date = DateTime.parse(timestamp);
+      } catch (e) {
+        return 'Invalid Date';
+      }
+    } else {
+      return 'Invalid Date';
+    }
+    
     return '${date.day}/${date.month}/${date.year}';
   }
 } 

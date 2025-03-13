@@ -94,11 +94,21 @@ class _LoginPageState extends State<LoginPage> {
                 if (snapshot.exists) {
                   final userData = snapshot.value as Map<dynamic, dynamic>;
                   final documentsSubmitted = userData['documentsSubmitted'] ?? false;
-                  final status = userData['status'] ?? 'pending_review';
+                  final documentsStatus = userData['documents']?['status'] ?? 'pending_review';
 
-                  // If documents are not submitted or status is pending_review, redirect to document page
-                  if (!documentsSubmitted || status == 'pending_review') {
+                  // If documents are not submitted or status is pending_review, show appropriate message
+                  if (!documentsSubmitted || documentsStatus == 'pending_review') {
                     if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            userRole == 'restaurant' 
+                                ? 'Documents under review. It takes 2 business days.'
+                                : 'Please complete your profile verification.',
+                          ),
+                          duration: const Duration(seconds: 5),
+                        ),
+                      );
                       Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(

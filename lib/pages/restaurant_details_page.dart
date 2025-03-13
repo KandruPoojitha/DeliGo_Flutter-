@@ -1,0 +1,680 @@
+import 'package:flutter/material.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+class MenuItemDetailsDialog extends StatefulWidget {
+  final Map<String, dynamic> item;
+  final String restaurantId;
+  final String restaurantName;
+
+  const MenuItemDetailsDialog({
+    super.key,
+    required this.item,
+    required this.restaurantId,
+    required this.restaurantName,
+  });
+
+  @override
+  State<MenuItemDetailsDialog> createState() => _MenuItemDetailsDialogState();
+}
+
+class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
+  int quantity = 1;
+  double basePrice = 0;
+  double totalPrice = 0;
+  Map<String, bool> selectedCustomizations = {};
+
+  @override
+  void initState() {
+    super.initState();
+    basePrice = widget.item['price']?.toDouble() ?? 0.0;
+    totalPrice = basePrice;
+    
+    // Initialize customization options
+    final customizations = widget.item['customizationOptions'];
+    if (customizations != null) {
+      final customizationsList = List<Map<String, dynamic>>.from(
+        (customizations as List).map((item) => Map<String, dynamic>.from(item))
+      );
+      
+      for (var customization in customizationsList) {
+        if (customization['type'] == 'Single Selection') {
+          final options = customization['options'] as List?;
+          if (options != null && options.isNotEmpty && customization['isRequired'] == true) {
+            final firstOption = Map<String, dynamic>.from(options.first);
+            selectedCustomizations[firstOption['name']] = true;
+          }
+        }
+      }
+    }
+    _updateTotalPrice();
+  }
+
+  void _updateTotalPrice() {
+    double customizationPrice = 0;
+    final customizations = widget.item['customizationOptions'];
+    
+    if (customizations != null) {
+      final customizationsList = List<Map<String, dynamic>>.from(
+        (customizations as List).map((item) => Map<String, dynamic>.from(item))
+      );
+      
+      for (var customization in customizationsList) {
+        final options = customization['options'] as List?;
+        if (options != null) {
+          for (var option in options) {
+            final optionMap = Map<String, dynamic>.from(option);
+            if (selectedCustomizations[optionMap['name']] == true) {
+              customizationPrice += optionMap['price']?.toDouble() ?? 0.0;
+            }
+          }
+        }
+      }
+    }
+    
+    setState(() {
+      totalPrice = (basePrice + customizationPrice) * quantity;
+    });
+  }
+
+  Future<void> _addToCart() async {
+    try {
+      final userId = FirebaseAuth.instance.currentUser?.uid;
+      if (userId == null) return;
+
+      // Create cart item with selected customizations
+      final cartItem = {
+        ...widget.item,
+        'quantity': quantity,
+        'selectedCustomizations': selectedCustomizations,
+        'totalPrice': totalPrice,
+        'restaurantId': widget.restaurantId,
+        'restaurantName': widget.restaurantName,
+        'addedAt': ServerValue.timestamp,
+      };
+
+      // Add to cart in Firebase
+      await FirebaseDatabase.instance
+          .ref()
+          .child('customers')
+          .child(userId)
+          .child('cart')
+          .push()
+          .set(cartItem);
+
+      if (mounted) {
+        // Show success dialog
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Row(
+              children: [
+                const Icon(
+                  Icons.shopping_cart,
+                  color: Color(0xFFF4A261),
+                ),
+                const SizedBox(width: 8),
+                const Text('Cart'),
+              ],
+            ),
+            content: const Text('Item added to cart successfully!'),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop(); // Close dialog
+                  Navigator.of(context).pop(); // Close menu item details
+                },
+                child: const Text(
+                  'OK',
+                  style: TextStyle(
+                    color: Color(0xFFF4A261),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error adding item to cart: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _buildCustomizationSection(Map<String, dynamic> customization) {
+    final options = customization['options'] as List?;
+    if (options == null) return const SizedBox.shrink();
+
+    final optionsList = List<Map<String, dynamic>>.from(
+      options.map((item) => Map<String, dynamic>.from(item))
+    );
+
+    final title = customization['name'] as String? ?? 'Customization';
+    final isSingleSelection = customization['type'] == 'Single Selection';
+    final isRequired = customization['isRequired'] == true;
+    final maxSelections = customization['maxSelections'] as int?;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Row(
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (isRequired)
+                const Text(
+                  ' *',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              if (!isSingleSelection && maxSelections != null)
+                Text(
+                  ' (Select up to $maxSelections)',
+                  style: const TextStyle(
+                    color: Colors.grey,
+                    fontSize: 14,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        ...optionsList.map((option) {
+          final price = option['price']?.toDouble() ?? 0.0;
+          return CheckboxListTile(
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(option['name'] ?? ''),
+                if (price > 0)
+                  Text(
+                    '+\$${price.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      color: Color(0xFFF4A261),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+              ],
+            ),
+            value: selectedCustomizations[option['name']] ?? false,
+            onChanged: (bool? value) {
+              setState(() {
+                if (isSingleSelection) {
+                  // Uncheck all other options in this group
+                  for (var opt in optionsList) {
+                    selectedCustomizations[opt['name']] = false;
+                  }
+                } else if (maxSelections != null) {
+                  // Check if we're at the max selections
+                  final currentSelections = optionsList.where(
+                    (opt) => selectedCustomizations[opt['name']] == true
+                  ).length;
+                  if (currentSelections >= maxSelections && value == true) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('You can only select up to $maxSelections options'),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                    return;
+                  }
+                }
+                selectedCustomizations[option['name']] = value ?? false;
+                
+                // If required and no option selected, select this one
+                if (isRequired && isSingleSelection && !selectedCustomizations.values.contains(true)) {
+                  selectedCustomizations[option['name']] = true;
+                }
+              });
+              _updateTotalPrice();
+            },
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header with image or colored container
+            Stack(
+              children: [
+                widget.item['imageUrl'] != null
+                    ? Image.network(
+                        widget.item['imageUrl'],
+                        height: 200,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            height: 200,
+                            color: const Color(0xFFF4A261),
+                            child: Center(
+                              child: Text(
+                                widget.item['name'] ?? 'Menu Item',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          );
+                        },
+                      )
+                    : Container(
+                        height: 200,
+                        color: const Color(0xFFF4A261),
+                        child: Center(
+                          child: Text(
+                            widget.item['name'] ?? 'Menu Item',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                // Close button with semi-transparent background
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Rest of the dialog content
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Name (show only if image is present)
+                  if (widget.item['imageUrl'] != null)
+                    Text(
+                      widget.item['name'] ?? 'Menu Item',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+
+                  // Description
+                  if (widget.item['description'] != null)
+                    Text(
+                      widget.item['description'],
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Quantity Selector
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.remove_circle_outline),
+                        onPressed: quantity > 1
+                            ? () {
+                                setState(() {
+                                  quantity--;
+                                  _updateTotalPrice();
+                                });
+                              }
+                            : null,
+                      ),
+                      const SizedBox(width: 16),
+                      Text(
+                        quantity.toString(),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle_outline),
+                        onPressed: () {
+                          setState(() {
+                            quantity++;
+                            _updateTotalPrice();
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Customizations
+                  if (widget.item['customizationOptions'] != null) ...[
+                    const Divider(),
+                    const Text(
+                      'Customize Your Order',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...(widget.item['customizationOptions'] as List)
+                      .map((item) => _buildCustomizationSection(Map<String, dynamic>.from(item)))
+                      .toList(),
+                    const Divider(),
+                  ],
+
+                  // Total Price
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        '\$${totalPrice.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFF4A261),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Add to Cart Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF4A261),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      onPressed: _addToCart,
+                      child: const Text(
+                        'Add to Cart',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class RestaurantDetailsPage extends StatefulWidget {
+  final String restaurantId;
+  final Map<String, dynamic> restaurant;
+
+  const RestaurantDetailsPage({
+    super.key,
+    required this.restaurantId,
+    required this.restaurant,
+  });
+
+  @override
+  State<RestaurantDetailsPage> createState() => _RestaurantDetailsPageState();
+}
+
+class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  Widget _buildMenuItemCard(String itemId, Map<String, dynamic> item) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: InkWell(
+        onTap: () {
+          showDialog(
+            context: context,
+            builder: (context) => MenuItemDetailsDialog(
+              item: Map<String, dynamic>.from({
+                ...item,
+                'id': itemId,
+              }),
+              restaurantId: widget.restaurantId,
+              restaurantName: widget.restaurant['fullName'] ?? '',
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Item Image
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: item['imageUrl'] != null
+                    ? Image.network(
+                        item['imageUrl'],
+                        width: 100,
+                        height: 100,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: 100,
+                            height: 100,
+                            color: Colors.grey[200],
+                            child: const Icon(
+                              Icons.restaurant,
+                              color: Colors.grey,
+                              size: 40,
+                            ),
+                          );
+                        },
+                      )
+                    : Container(
+                        width: 100,
+                        height: 100,
+                        color: Colors.grey[200],
+                        child: const Icon(
+                          Icons.restaurant,
+                          color: Colors.grey,
+                          size: 40,
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 16),
+              // Item Details
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item['name'] ?? 'Unnamed Item',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    if (item['description'] != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        item['description'],
+                        style: const TextStyle(
+                          color: Colors.grey,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Text(
+                      '\$${(item['price'] ?? 0.0).toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFFF4A261),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          widget.restaurant['fullName'] ?? 'Restaurant',
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: const Color(0xFFF4A261),
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: [
+          // Search Bar
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search menu items...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          setState(() {
+                            _searchController.clear();
+                            _searchQuery = '';
+                          });
+                        },
+                      )
+                    : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: Colors.grey[100],
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value;
+                });
+              },
+            ),
+          ),
+
+          // Menu Items List
+          Expanded(
+            child: StreamBuilder(
+              stream: FirebaseDatabase.instance
+                  .ref()
+                  .child('restaurants')
+                  .child(widget.restaurantId)
+                  .child('menu_items')
+                  .onValue,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('Error: ${snapshot.error}'),
+                  );
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
+                }
+
+                final menuItems = snapshot.data?.snapshot.value as Map?;
+
+                if (menuItems == null || menuItems.isEmpty) {
+                  return const Center(
+                    child: Text('No menu items available'),
+                  );
+                }
+
+                final filteredItems = _searchQuery.isEmpty
+                    ? menuItems
+                    : Map.fromEntries(
+                        menuItems.entries.where((entry) {
+                          final item = entry.value as Map;
+                          final name = (item['name'] ?? '').toString().toLowerCase();
+                          final description = (item['description'] ?? '').toString().toLowerCase();
+                          final query = _searchQuery.toLowerCase();
+                          return name.contains(query) || description.contains(query);
+                        }),
+                      );
+
+                if (filteredItems.isEmpty) {
+                  return const Center(
+                    child: Text('No items match your search'),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: filteredItems.length,
+                  itemBuilder: (context, index) {
+                    final itemId = filteredItems.keys.elementAt(index);
+                    final item = filteredItems[itemId] as Map;
+                    return _buildMenuItemCard(itemId, Map<String, dynamic>.from(item));
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+} 
