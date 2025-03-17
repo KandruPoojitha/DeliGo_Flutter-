@@ -625,9 +625,9 @@ class _CustomerPageState extends State<CustomerPage> {
                           // Item Image
                           ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: item['imageUrl'] != null
+                            child: item['imageURL'] != null
                                 ? Image.network(
-                                    item['imageUrl'],
+                                    item['imageURL'],
                                     width: 100,
                                     height: 100,
                                     fit: BoxFit.cover,
@@ -792,6 +792,36 @@ class _CustomerPageState extends State<CustomerPage> {
     );
   }
 
+  Future<void> _removeFromCart(String itemId) async {
+    try {
+      await FirebaseDatabase.instance
+          .ref()
+          .child('customers')
+          .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+          .child('cart')
+          .child(itemId)
+          .remove();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Item removed from cart'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error removing item from cart: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildCartTab() {
     return StreamBuilder(
       stream: FirebaseDatabase.instance
@@ -871,9 +901,9 @@ class _CustomerPageState extends State<CustomerPage> {
                           // Item Image
                           ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: item['imageUrl'] != null
+                            child: item['imageURL'] != null
                                 ? Image.network(
-                                    item['imageUrl'],
+                                    item['imageURL'],
                                     width: 80,
                                     height: 80,
                                     fit: BoxFit.cover,
@@ -914,132 +944,67 @@ class _CustomerPageState extends State<CustomerPage> {
                                     fontSize: 16,
                                   ),
                                 ),
-                                Text(
-                                  item['restaurantName'] ?? 'Unknown Restaurant',
-                                  style: const TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                if (item['description'] != null) ...[
+                                if (item['customizations'] != null) ...[
+                                  const SizedBox(height: 4),
+                                  ...(item['customizations'] as List).map((customization) {
+                                    if (customization == null) return const SizedBox.shrink();
+                                    
+                                    final selectedItems = customization['selectedItems'] as List?;
+                                    if (selectedItems == null || selectedItems.isEmpty) {
+                                      return const SizedBox.shrink();
+                                    }
+
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        '${customization['optionName']}: ${selectedItems.map((item) => '${item['name']} (+\$${(item['price'] ?? 0.0).toStringAsFixed(2)})').join(', ')}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ],
+                                if (item['specialInstructions'] != null && 
+                                    item['specialInstructions'].toString().isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text(
-                                    item['description'],
-                                    style: const TextStyle(
-                                      color: Colors.grey,
+                                    'Note: ${item['specialInstructions']}',
+                                    style: TextStyle(
                                       fontSize: 12,
+                                      color: Colors.grey[600],
+                                      fontStyle: FontStyle.italic,
                                     ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ],
-                                const SizedBox(height: 4),
-                                // Quantity
+                                const SizedBox(height: 8),
                                 Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.remove_circle_outline),
-                                      onPressed: () async {
-                                        try {
-                                          final currentQuantity = item['quantity'] as int;
-                                          if (currentQuantity > 1) {
-                                            await FirebaseDatabase.instance
-                                                .ref()
-                                                .child('customers')
-                                                .child(FirebaseAuth.instance.currentUser?.uid ?? '')
-                                                .child('cart')
-                                                .child(itemId)
-                                                .update({
-                                              'quantity': currentQuantity - 1,
-                                              'totalPrice': (item['price'] ?? 0.0) * (currentQuantity - 1),
-                                            });
-                                          } else {
-                                            await FirebaseDatabase.instance
-                                                .ref()
-                                                .child('customers')
-                                                .child(FirebaseAuth.instance.currentUser?.uid ?? '')
-                                                .child('cart')
-                                                .child(itemId)
-                                                .remove();
-                                          }
-                                        } catch (e) {
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(content: Text('Error updating quantity: $e')),
-                                            );
-                                          }
-                                        }
-                                      },
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                    ),
                                     Text(
-                                      '${item['quantity']}',
+                                      '\$${(item['totalPrice'] ?? 0.0).toStringAsFixed(2)}',
                                       style: const TextStyle(
-                                        fontSize: 16,
                                         fontWeight: FontWeight.bold,
+                                        color: Color(0xFFF4A261),
                                       ),
                                     ),
-                                    IconButton(
-                                      icon: const Icon(Icons.add_circle_outline),
-                                      onPressed: () async {
-                                        try {
-                                          final currentQuantity = item['quantity'] as int;
-                                          await FirebaseDatabase.instance
-                                              .ref()
-                                              .child('customers')
-                                              .child(FirebaseAuth.instance.currentUser?.uid ?? '')
-                                              .child('cart')
-                                              .child(itemId)
-                                              .update({
-                                            'quantity': currentQuantity + 1,
-                                            'totalPrice': (item['price'] ?? 0.0) * (currentQuantity + 1),
-                                          });
-                                        } catch (e) {
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(content: Text('Error updating quantity: $e')),
-                                            );
-                                          }
-                                        }
-                                      },
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
+                                    Text(
+                                      'Quantity: ${item['quantity'] ?? 1}',
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                      ),
                                     ),
                                   ],
-                                ),
-                                Text(
-                                  '\$${(item['totalPrice'] ?? 0.0).toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFF4A261),
-                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          // Remove Item Button
+                          // Delete Button
                           IconButton(
                             icon: const Icon(Icons.delete_outline),
-                            onPressed: () async {
-                              try {
-                                await FirebaseDatabase.instance
-                                    .ref()
-                                    .child('customers')
-                                    .child(FirebaseAuth.instance.currentUser?.uid ?? '')
-                                    .child('cart')
-                                    .child(itemId)
-                                    .remove();
-                              } catch (e) {
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Error removing item: $e')),
-                                  );
-                                }
-                              }
-                            },
                             color: Colors.red,
+                            onPressed: () => _removeFromCart(itemId),
                           ),
                         ],
                       ),

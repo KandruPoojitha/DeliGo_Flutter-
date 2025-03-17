@@ -12,14 +12,30 @@ class DriverService {
   }
 
   Future<Driver?> getDriver(String uid) async {
-    final snapshot = await _database.ref().child('drivers').child(uid).get();
-    if (!snapshot.exists) return null;
+    try {
+      final snapshot = await _database.ref().child('drivers').child(uid).get();
+      if (!snapshot.exists) return null;
 
-    final data = snapshot.value as Map<dynamic, dynamic>;
-    return Driver.fromJson({
-      'uid': uid,
-      ...data,
-    });
+      final data = snapshot.value as Map<dynamic, dynamic>;
+      
+      // Convert dynamic map to Map<String, dynamic>
+      final Map<String, dynamic> driverData = {};
+      data.forEach((key, value) {
+        driverData[key.toString()] = value;
+      });
+      
+      // Debug: Print driver data
+      print('Driver data from Firebase: $driverData');
+      print('Driver status: ${driverData['status']}');
+      
+      return Driver.fromJson({
+        'uid': uid,
+        ...driverData,
+      });
+    } catch (e) {
+      print('Error getting driver: $e');
+      return null;
+    }
   }
 
   Future<String> uploadImage(File image, String path) async {
@@ -29,10 +45,16 @@ class DriverService {
   }
 
   Future<void> updateDriverApproval(String uid, bool isApproved) async {
-    await _database.ref().child('drivers').child(uid).child('documents').update({
+    final now = DateTime.now().toIso8601String();
+    
+    // Update both the documents status and the root status
+    await _database.ref().child('drivers').child(uid).update({
       'status': isApproved ? 'approved' : 'rejected',
-      'updatedAt': ServerValue.timestamp,
+      'documents.status': isApproved ? 'approved' : 'rejected',
+      'updatedAt': now,
     });
+    
+    print('Updated driver approval status: ${isApproved ? 'approved' : 'rejected'}');
   }
 
   Stream<Driver?> getDriverStream(String uid) {

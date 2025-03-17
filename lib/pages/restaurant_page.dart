@@ -572,6 +572,56 @@ class _RestaurantPageState extends State<RestaurantPage> {
     }
   }
 
+  Future<void> _updateExistingMenuItems() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User not logged in');
+
+      final menuItemsRef = FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(user.uid)
+          .child('menu_items');
+
+      final snapshot = await menuItemsRef.get();
+      if (snapshot.exists) {
+        final items = snapshot.value as Map;
+        int updatedCount = 0;
+        
+        for (var entry in items.entries) {
+          final item = entry.value as Map;
+          if (item.containsKey('imageUrl')) {
+            await menuItemsRef
+                .child(entry.key)
+                .update({
+              'imageURL': item['imageUrl'],
+              'imageUrl': null,
+            });
+            updatedCount++;
+          }
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Updated $updatedCount menu items to use imageURL'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating menu items: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildOrdersTab() {
     return Column(
       children: [
@@ -680,6 +730,13 @@ class _RestaurantPageState extends State<RestaurantPage> {
       ],
     );
   }
+
+
+
+
+
+
+
 
   Widget _buildOrderTabButton(String label, int index) {
     final isSelected = _ordersTabIndex == index;
@@ -853,36 +910,52 @@ class _RestaurantPageState extends State<RestaurantPage> {
           children: [
             Column(
               children: [
-                // Search Bar
+                // Search Bar and Update Button Row
                 Padding(
                   padding: const EdgeInsets.all(16.0),
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: 'Search menu items...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchQuery.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                setState(() {
-                                  _searchController.clear();
-                                  _searchQuery = '';
-                                });
-                              },
-                            )
-                          : null,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _searchController,
+                          decoration: InputDecoration(
+                            hintText: 'Search menu items...',
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: _searchQuery.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear),
+                                    onPressed: () {
+                                      setState(() {
+                                        _searchController.clear();
+                                        _searchQuery = '';
+                                      });
+                                    },
+                                  )
+                                : null,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey[100],
+                          ),
+                          onChanged: (value) {
+                            setState(() {
+                              _searchQuery = value;
+                            });
+                          },
+                        ),
                       ),
-                      filled: true,
-                      fillColor: Colors.grey[100],
-                    ),
-                    onChanged: (value) {
-                      setState(() {
-                        _searchQuery = value;
-                      });
-                    },
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.refresh),
+                        tooltip: 'Update Image URLs',
+                        onPressed: _updateExistingMenuItems,
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.grey[100],
+                          padding: const EdgeInsets.all(12),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 // Menu Items List
@@ -926,11 +999,11 @@ class _RestaurantPageState extends State<RestaurantPage> {
                               margin: const EdgeInsets.only(bottom: 16),
                               child: Column(
                                 children: [
-                                  if (item['imageUrl'] != null)
+                                  if (item['imageURL'] != null)
                                     ClipRRect(
                                       borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                                       child: Image.network(
-                                        item['imageUrl'],
+                                        item['imageURL'],
                                         height: 200,
                                         width: double.infinity,
                                         fit: BoxFit.cover,

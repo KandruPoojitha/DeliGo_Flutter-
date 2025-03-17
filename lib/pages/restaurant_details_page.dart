@@ -82,16 +82,47 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
       final userId = FirebaseAuth.instance.currentUser?.uid;
       if (userId == null) return;
 
-      // Create cart item with selected customizations
+      // Create customizations array with the new structure
+      List<Map<String, dynamic>> customizations = [];
+      widget.item['customizationOptions']?.forEach((customization) {
+        List<Map<String, dynamic>> selectedItems = [];
+        final options = customization['options'] as List?;
+        if (options != null) {
+          for (var option in options) {
+            final optionMap = Map<String, dynamic>.from(option);
+            if (selectedCustomizations[optionMap['name']] == true) {
+              selectedItems.add({
+                'id': optionMap['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+                'name': optionMap['name'],
+                'price': optionMap['price'] ?? 0.0,
+              });
+            }
+          }
+        }
+
+        if (selectedItems.isNotEmpty) {
+          customizations.add({
+            'optionId': customization['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+            'optionName': customization['name'],
+            'price': 0.0, // Base price for the customization group
+            'selectedItems': selectedItems,
+          });
+        }
+      });
+
+      // Create cart item with the new customizations structure
       final cartItem = {
         ...widget.item,
         'quantity': quantity,
-        'selectedCustomizations': selectedCustomizations,
+        'customizations': customizations,
         'totalPrice': totalPrice,
         'restaurantId': widget.restaurantId,
         'restaurantName': widget.restaurantName,
         'addedAt': ServerValue.timestamp,
       };
+
+      // Remove old selectedCustomizations field
+      cartItem.remove('selectedCustomizations');
 
       // Add to cart in Firebase
       await FirebaseDatabase.instance
@@ -257,9 +288,9 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
             // Header with image or colored container
             Stack(
               children: [
-                widget.item['imageUrl'] != null
+                widget.item['imageURL'] != null
                     ? Image.network(
-                        widget.item['imageUrl'],
+                        widget.item['imageURL'],
                         height: 200,
                         width: double.infinity,
                         fit: BoxFit.cover,
@@ -321,7 +352,7 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Name (show only if image is present)
-                  if (widget.item['imageUrl'] != null)
+                  if (widget.item['imageURL'] != null)
                     Text(
                       widget.item['name'] ?? 'Menu Item',
                       style: const TextStyle(
@@ -554,9 +585,9 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
               // Item Image
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: item['imageUrl'] != null
+                child: item['imageURL'] != null
                     ? Image.network(
-                        item['imageUrl'],
+                        item['imageURL'],
                         width: 100,
                         height: 100,
                         fit: BoxFit.cover,
@@ -696,9 +727,9 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
                 Container(
                   height: 200,
                   width: double.infinity,
-                  child: widget.restaurant['store_info']?['imageUrl'] != null
+                  child: widget.restaurant['store_info']?['imageURL'] != null
                       ? Image.network(
-                          widget.restaurant['store_info']?['imageUrl'],
+                          widget.restaurant['store_info']?['imageURL'],
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) {
                             return Container(

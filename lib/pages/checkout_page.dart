@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:geolocator/geolocator.dart';
+import 'package:uuid/uuid.dart';
 
 class CheckoutPage extends StatefulWidget {
   final Map<String, dynamic> cartItems;
@@ -31,6 +33,11 @@ class _CheckoutPageState extends State<CheckoutPage> {
   List<dynamic> _predictions = [];
   bool _isLoadingPredictions = false;
   static const String _apiKey = 'AIzaSyDHujk0Z7p3_mjmPsicmn7T9iyQBC0ZqtU';
+  bool _isProcessingPayment = false;
+  String _selectedPaymentMethod = 'Cash on Delivery';
+  double _selectedTipPercentage = 0;
+  bool _isProcessing = false;
+  static const String _serverUrl = 'http://your-server-url.com';
 
   @override
   void dispose() {
@@ -324,30 +331,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
               // Payment Method
               _buildSection(
                 title: 'Payment Method',
-                child: Column(
-                  children: [
-                    RadioListTile<bool>(
-                      title: const Text('Cash on Delivery'),
-                      value: true,
-                      groupValue: _isCashOnDelivery,
-                      onChanged: (value) {
-                        setState(() {
-                          _isCashOnDelivery = value ?? true;
-                        });
-                      },
-                    ),
-                    RadioListTile<bool>(
-                      title: const Text('Credit/Debit Card'),
-                      value: false,
-                      groupValue: _isCashOnDelivery,
-                      onChanged: (value) {
-                        setState(() {
-                          _isCashOnDelivery = value ?? true;
-                        });
-                      },
-                    ),
-                  ],
-                ),
+                child: _buildPaymentMethodSection(),
               ),
               const SizedBox(height: 16),
 
@@ -408,24 +392,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
               const SizedBox(height: 24),
 
               // Place Order Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFF4A261),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  onPressed: _placeOrder,
-                  child: const Text(
-                    'Place Order',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
+              _buildPlaceOrderButton(),
             ],
           ),
         ),
@@ -467,17 +434,93 @@ class _CheckoutPageState extends State<CheckoutPage> {
     );
   }
 
+  Widget _buildPaymentMethodSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Payment Method',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 10),
+        ListTile(
+          title: const Text('Cash on Delivery'),
+          leading: Radio<bool>(
+            value: true,
+            groupValue: _isCashOnDelivery,
+            onChanged: (bool? value) {
+              setState(() {
+                _isCashOnDelivery = value!;
+              });
+            },
+          ),
+        ),
+        ListTile(
+          title: const Text('Credit/Debit Card'),
+          subtitle: const Text('Coming soon'),
+          leading: Radio<bool>(
+            value: false,
+            groupValue: _isCashOnDelivery,
+            onChanged: null,  // Disabled radio button
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPlaceOrderButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFF4A261),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+        ),
+        onPressed: _isProcessingPayment ? null : _placeOrder,
+        child: _isProcessingPayment
+          ? const SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                strokeWidth: 2,
+              ),
+            )
+          : const Text(
+              'Place Order',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+      ),
+    );
+  }
+
   Future<void> _placeOrder() async {
     if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isProcessingPayment = true;
+    });
 
     try {
       final userId = FirebaseAuth.instance.currentUser?.uid;
       if (userId == null) throw Exception('User not logged in');
 
+      // Get current location
+      Position position = await Geolocator.getCurrentPosition();
+
+      // Generate a unique order ID using UUID format
+      final orderId = const Uuid().v4().toUpperCase();
       final orderRef = FirebaseDatabase.instance
           .ref()
           .child('orders')
-          .push();
+          .child(orderId);
 
       // Get the first restaurant ID from cart items
       final firstItem = widget.cartItems.values.first as Map;
@@ -485,10 +528,29 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
       // Process items to match the required structure
       final processedItems = widget.cartItems.entries.map((entry) {
-        final item = entry.value as Map;
+        final item = Map<String, dynamic>.from(entry.value as Map);
+        
+        // Process customizations if they exist
+        final customizations = item['customizations'];
+        Map<String, dynamic> processedCustomizations = {};
+        
+        if (customizations != null) {
+          for (var customization in customizations as List) {
+            final customId = const Uuid().v4().toUpperCase();
+            processedCustomizations[customId] = {
+              'optionId': customId,
+              'optionName': customization['optionName'],
+              'selectedItems': customization['selectedItems'] ?? [],
+            };
+          }
+        }
+
         return {
+          'customizations': processedCustomizations,
           'description': item['description'] ?? '',
-          'imageUrl': item['imageUrl'] ?? '',
+          'id': const Uuid().v4().toUpperCase(),
+          'imageURL': item['imageURL'] ?? '',
+          'menuItemId': item['menuItemId'] ?? '',
           'name': item['name'] ?? 'Unnamed Item',
           'price': item['price'] ?? 0.0,
           'quantity': item['quantity'] ?? 1,
@@ -498,23 +560,26 @@ class _CheckoutPageState extends State<CheckoutPage> {
       }).toList();
 
       final orderData = {
+        'address': _isDelivery ? {
+          'instructions': _instructionsController.text,
+          'street': _streetController.text,
+          'unit': _unitController.text,
+        } : null,
+        'createdAt': ServerValue.timestamp,
         'deliveryFee': _isDelivery ? _deliveryFee : 0,
-        'deliveryOption': _isDelivery ? 'delivery' : 'pickup',
-        'paymentMethod': _isCashOnDelivery ? 'Cash on Delivery' : 'card',
+        'deliveryOption': _isDelivery ? 'Delivery' : 'Pickup',
+        'id': orderId,
+        'items': processedItems,
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+        'paymentMethod': 'Cash on Delivery',
         'restaurantId': restaurantId,
-        'subtotal': widget.subtotal,
         'status': 'pending',
+        'subtotal': widget.subtotal,
         'tipAmount': _tipAmount,
         'tipPercentage': _tipPercentage,
         'total': _totalAmount,
         'userId': userId,
-        'items': processedItems,
-        'address': _isDelivery ? {
-          'street': _streetController.text,
-          'unit': _unitController.text,
-          'instructions': _instructionsController.text,
-        } : null,
-        'timestamp': DateTime.now().toIso8601String(),
       };
 
       await orderRef.set(orderData);
@@ -530,15 +595,142 @@ class _CheckoutPageState extends State<CheckoutPage> {
       if (mounted) {
         Navigator.pop(context); // Return to previous screen
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Order placed successfully!')),
+          const SnackBar(
+            content: Text('Order placed successfully! Please pay on delivery.'),
+            duration: Duration(seconds: 4),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error placing order: $e')),
+          SnackBar(
+            content: Text('Error placing order: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingPayment = false;
+        });
+      }
     }
+  }
+
+  Future<void> _processPayment() async {
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      if (_selectedPaymentMethod == 'Cash on Delivery') {
+        // Get current user location
+        Position position = await Geolocator.getCurrentPosition();
+        
+        // Create order data
+        final orderData = {
+          'cartItems': widget.cartItems,
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'paymentMethod': _selectedPaymentMethod,
+          'restaurantId': widget.cartItems.values.first['restaurantId'],
+          'status': 'pending',
+          'subtotal': widget.subtotal,
+          'tipAmount': _calculateTipAmount(),
+          'tipPercentage': _selectedTipPercentage,
+          'total': _calculateTotal(),
+          'userId': FirebaseAuth.instance.currentUser?.uid,
+          'timestamp': ServerValue.timestamp,
+        };
+
+        // Generate a unique order ID
+        final orderId = FirebaseDatabase.instance
+            .ref()
+            .child('orders')
+            .push()
+            .key;
+
+        if (orderId != null) {
+          // Store order in orders collection
+          await FirebaseDatabase.instance
+              .ref()
+              .child('orders')
+              .child(orderId)
+              .set(orderData);
+
+          // Clear user's cart
+          await FirebaseDatabase.instance
+              .ref()
+              .child('customers')
+              .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+              .child('cart')
+              .remove();
+
+          if (mounted) {
+            // Show success message and navigate back to home
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Order placed successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          }
+        }
+      } else {
+        // Handle other payment methods (Stripe, etc.)
+        final response = await http.post(
+          Uri.parse('$_serverUrl/create-payment-intent'),
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: json.encode({
+            'amount': (_calculateTotal() * 100).round(),
+            'currency': 'usd',
+          }),
+        );
+
+        if (response.statusCode != 200) {
+          throw Exception('Failed to create payment intent: ${response.body}');
+        }
+
+        final jsonResponse = json.decode(response.body);
+        final clientSecret = jsonResponse['clientSecret'];
+
+        if (clientSecret == null) {
+          throw Exception('Failed to get client secret from server');
+        }
+
+        // Continue with Stripe payment...
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error processing payment: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
+  double _calculateTipAmount() {
+    return (widget.subtotal * _selectedTipPercentage / 100);
+  }
+
+  double _calculateTotal() {
+    final tipAmount = _calculateTipAmount();
+    final deliveryFee = 5.00; // Fixed delivery fee
+    return widget.subtotal + tipAmount + deliveryFee;
   }
 } 

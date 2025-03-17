@@ -71,6 +71,7 @@ dependencies {
     implementation 'com.google.firebase:firebase-analytics'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation 'androidx.multidex:multidex:2.0.1'
+    implementation 'com.google.android.material:material:1.5.0'
 }
 
 // Add this at the bottom of the file

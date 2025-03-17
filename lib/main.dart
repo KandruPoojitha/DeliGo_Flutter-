@@ -4,9 +4,14 @@ import 'package:firebase_core/firebase_core.dart';
 import 'providers/theme_provider.dart';
 import 'providers/language_provider.dart';
 import 'pages/login_page.dart';
+import 'package:flutter_stripe/flutter_stripe.dart' as stripe;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Stripe
+  stripe.Stripe.publishableKey = 'pk_test_51QycXpPFig18ZUMzhwJmZJPMw7ONj9nxCxbr4zwbIzGo9psQgLM9CQZVSuLNNupCPB6lCNLg0NRNz5Q0mwQ7Fqtw005Mf77ZUV';
+  
   await Firebase.initializeApp();
   runApp(const MyApp());
 }

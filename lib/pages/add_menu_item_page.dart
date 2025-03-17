@@ -48,10 +48,13 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
 
   Future<void> _addCustomizationOption() async {
     final TextEditingController nameController = TextEditingController();
-    String selectedType = 'Single Selection';
+    String selectedType = 'single';
     bool isRequired = false;
     List<Map<String, dynamic>> options = [];
     int? maxSelections;
+
+    // Generate unique ID for the customization option
+    final String customizationId = 'custom_${DateTime.now().millisecondsSinceEpoch}';
 
     await showDialog(
       context: context,
@@ -85,10 +88,10 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                     labelText: 'Type',
                     border: OutlineInputBorder(),
                   ),
-                  items: ['Single Selection', 'Multiple Selection'].map((type) {
+                  items: ['single', 'multiple'].map((type) {
                     return DropdownMenuItem(
                       value: type,
-                      child: Text(type),
+                      child: Text(type == 'single' ? 'Single Selection' : 'Multiple Selection'),
                     );
                   }).toList(),
                   onChanged: (value) {
@@ -98,7 +101,7 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                   },
                 ),
                 const SizedBox(height: 16),
-                if (selectedType == 'Multiple Selection')
+                if (selectedType == 'multiple')
                   TextField(
                     decoration: const InputDecoration(
                       labelText: 'Max Selections',
@@ -140,6 +143,9 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                         final TextEditingController optionNameController = TextEditingController();
                         final TextEditingController optionPriceController = TextEditingController();
 
+                        // Generate unique ID for the option
+                        final String optionId = 'option_${DateTime.now().millisecondsSinceEpoch}';
+
                         await showDialog(
                           context: context,
                           builder: (context) => AlertDialog(
@@ -177,6 +183,7 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                                       optionPriceController.text.isNotEmpty) {
                                     setState(() {
                                       options.add({
+                                        'id': optionId,
                                         'name': optionNameController.text,
                                         'price': double.parse(optionPriceController.text),
                                       });
@@ -209,7 +216,6 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                   Card(
                     child: Column(
                       children: options.asMap().entries.map((entry) {
-                        final index = entry.key;
                         final option = entry.value;
                         return ListTile(
                           title: Text(option['name']),
@@ -218,7 +224,7 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                             icon: const Icon(Icons.delete),
                             onPressed: () {
                               setState(() {
-                                options.removeAt(index);
+                                options.removeAt(entry.key);
                               });
                             },
                           ),
@@ -239,10 +245,11 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
                 if (nameController.text.isNotEmpty && options.isNotEmpty) {
                   setState(() {
                     _customizationOptions.add({
+                      'id': customizationId,
                       'name': nameController.text,
                       'type': selectedType,
-                      'isRequired': isRequired,
-                      'maxSelections': selectedType == 'Single Selection' ? 1 : maxSelections,
+                      'required': isRequired,
+                      'maxSelections': selectedType == 'single' ? 1 : maxSelections,
                       'options': options,
                     });
                   });
@@ -294,7 +301,7 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
         'description': _descriptionController.text,
         'price': double.parse(_priceController.text),
         'category': _selectedCategory,
-        'imageUrl': imageUrl,
+        'imageURL': imageUrl,
         'isAvailable': _isAvailable,
         'customizationOptions': _customizationOptions,
         'createdAt': ServerValue.timestamp,
@@ -647,11 +654,11 @@ class _AddMenuItemPageState extends State<AddMenuItemPage> {
               margin: const EdgeInsets.only(bottom: 16),
               child: Column(
                 children: [
-                  if (item['imageUrl'] != null)
+                  if (item['imageURL'] != null)
                     ClipRRect(
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                       child: Image.network(
-                        item['imageUrl'],
+                        item['imageURL'],
                         height: 200,
                         width: double.infinity,
                         fit: BoxFit.cover,

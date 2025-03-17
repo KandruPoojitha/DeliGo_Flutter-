@@ -6,9 +6,12 @@ class Driver {
   final String role;
   final bool documentsSubmitted;
   final Map<String, dynamic>? documents;
+  final Map<String, dynamic>? hours;
   final String status;
   final String createdAt;
   final String? updatedAt;
+  final bool? isOnline;
+  final bool? availableForOrders;
 
   Driver({
     required this.uid,
@@ -18,9 +21,12 @@ class Driver {
     required this.role,
     required this.documentsSubmitted,
     this.documents,
+    this.hours,
     required this.status,
     required this.createdAt,
     this.updatedAt,
+    this.isOnline,
+    this.availableForOrders,
   });
 
   bool get isApproved => status == 'approved';
@@ -34,9 +40,12 @@ class Driver {
       role: json['role'] ?? '',
       documentsSubmitted: json['documentsSubmitted'] ?? false,
       documents: json['documents'],
+      hours: json['hours'],
       status: json['status'] ?? 'pending_review',
       createdAt: json['createdAt'] ?? '',
       updatedAt: json['updatedAt'],
+      isOnline: json['isOnline'],
+      availableForOrders: json['availableForOrders'],
     );
   }
 
@@ -49,9 +58,17 @@ class Driver {
       'role': role,
       'documentsSubmitted': documentsSubmitted,
       'documents': documents,
+      'hours': hours,
       'status': status,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
+      'isOnline': isOnline,
+      'availableForOrders': availableForOrders,
     };
+  }
+  
+  @override
+  String toString() {
+    return 'Driver{uid: $uid, status: $status, isApproved: $isApproved, documentsSubmitted: $documentsSubmitted}';
   }
 } 
