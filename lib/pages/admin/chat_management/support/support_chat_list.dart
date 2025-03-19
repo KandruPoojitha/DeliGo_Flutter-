@@ -32,21 +32,25 @@ class SupportChatList extends StatelessWidget {
         
         conversations.forEach((conversationId, messages) {
           if (messages is Map) {
-            // Get the first message to determine the user
-            MapEntry<dynamic, dynamic> firstMessage = (messages as Map<dynamic, dynamic>)
-                .entries
-                .reduce((a, b) => 
-                    (a.value['timestamp'] as num) < (b.value['timestamp'] as num) ? a : b);
+            // Check all messages to find ones matching the userType
+            bool hasUserTypeMessage = false;
+            String? userId;
+            String? userName;
             
-            if (firstMessage.value['senderType'] == userType) {
-              String userId = firstMessage.value['senderId'] as String;
-              String userName = firstMessage.value['senderName'] as String;
-              
+            (messages as Map<dynamic, dynamic>).forEach((_, messageData) {
+              if (messageData['senderType'] == userType) {
+                hasUserTypeMessage = true;
+                userId = messageData['senderId'] as String;
+                userName = messageData['senderName'] as String;
+              }
+            });
+            
+            if (hasUserTypeMessage && userId != null && userName != null) {
               if (!userConversations.containsKey(userId)) {
-                userConversations[userId] = [];
+                userConversations[userId!] = [];
               }
               
-              userConversations[userId]!.add(MapEntry(
+              userConversations[userId!]!.add(MapEntry(
                 conversationId as String,
                 {
                   'messages': messages,
@@ -57,6 +61,10 @@ class SupportChatList extends StatelessWidget {
             }
           }
         });
+
+        if (userConversations.isEmpty) {
+          return Center(child: Text('No ${userType} chats available'));
+        }
 
         // Convert to list and sort by latest message
         List<MapEntry<String, List<MapEntry<String, Map<String, dynamic>>>>> sortedUsers = 
