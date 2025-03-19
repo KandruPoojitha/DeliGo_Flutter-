@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'login_page.dart';
 import 'restaurant_details_page.dart';
 import 'checkout_page.dart';
+import 'support_chat_detail.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -1094,20 +1095,161 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Widget _buildAccountTab() {
-    return Center(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Account Tab'),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: () => _signOut(context),
-            icon: const Icon(Icons.logout),
-            label: const Text('Sign Out'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFF4A261),
-              foregroundColor: Colors.white,
+          // Personal Information Card
+          Card(
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Personal Information',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  StreamBuilder<DatabaseEvent>(
+                    stream: FirebaseDatabase.instance
+                        .ref()
+                        .child('customers')
+                        .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+                        .onValue,
+                    builder: (context, snapshot) {
+                      if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+                        final userData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                        return Column(
+                          children: [
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const CircleAvatar(
+                                backgroundColor: Color(0xFFF4A261),
+                                child: Icon(Icons.person, color: Colors.white),
+                              ),
+                              title: Text(userData['fullName'] ?? 'Customer'),
+                              subtitle: Text(userData['email'] ?? ''),
+                            ),
+                            const Divider(),
+                            _buildInfoRow('Phone', userData['phone'] ?? 'Not provided'),
+                            _buildInfoRow('Address', userData['address'] ?? 'Not provided'),
+                          ],
+                        );
+                      }
+                      return const Center(child: CircularProgressIndicator());
+                    },
+                  ),
+                ],
+              ),
             ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Support Card
+          Card(
+            elevation: 2,
+            child: InkWell(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => SupportChatDetail(
+                      userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+                      userName: FirebaseAuth.instance.currentUser?.displayName ?? 'Customer',
+                      userType: 'customer',
+                    ),
+                  ),
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4A261).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.support_agent,
+                        color: Color(0xFFF4A261),
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Support',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Chat with our support team',
+                            style: TextStyle(
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Logout Button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _signOut(context),
+              icon: const Icon(Icons.logout),
+              label: const Text('Sign Out'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF4A261),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(value),
           ),
         ],
       ),
