@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:uuid/uuid.dart';
+import './payment/payment_screen.dart';
 
 class CheckoutPage extends StatefulWidget {
   final Map<String, dynamic> cartItems;
@@ -438,33 +439,28 @@ class _CheckoutPageState extends State<CheckoutPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Payment Method',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 10),
         ListTile(
           title: const Text('Cash on Delivery'),
-          leading: Radio<bool>(
-            value: true,
-            groupValue: _isCashOnDelivery,
-            onChanged: (bool? value) {
+          leading: Radio<String>(
+            value: 'Cash on Delivery',
+            groupValue: _selectedPaymentMethod,
+            onChanged: (String? value) {
               setState(() {
-                _isCashOnDelivery = value!;
+                _selectedPaymentMethod = value!;
               });
             },
           ),
         ),
         ListTile(
           title: const Text('Credit/Debit Card'),
-          subtitle: const Text('Coming soon'),
-          leading: Radio<bool>(
-            value: false,
-            groupValue: _isCashOnDelivery,
-            onChanged: null,  // Disabled radio button
+          leading: Radio<String>(
+            value: 'Card',
+            groupValue: _selectedPaymentMethod,
+            onChanged: (String? value) {
+              setState(() {
+                _selectedPaymentMethod = value!;
+              });
+            },
           ),
         ),
       ],
@@ -517,10 +513,6 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
       // Generate a unique order ID using UUID format
       final orderId = const Uuid().v4().toUpperCase();
-      final orderRef = FirebaseDatabase.instance
-          .ref()
-          .child('orders')
-          .child(orderId);
 
       // Get the first restaurant ID from cart items
       final firstItem = widget.cartItems.values.first as Map;
@@ -572,7 +564,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
         'items': processedItems,
         'latitude': position.latitude,
         'longitude': position.longitude,
-        'paymentMethod': 'Cash on Delivery',
+        'order_status': 'pending',
+        'paymentMethod': _selectedPaymentMethod,
         'restaurantId': restaurantId,
         'status': 'pending',
         'subtotal': widget.subtotal,
@@ -582,25 +575,66 @@ class _CheckoutPageState extends State<CheckoutPage> {
         'userId': userId,
       };
 
-      await orderRef.set(orderData);
-
-      // Clear cart
-      await FirebaseDatabase.instance
-          .ref()
-          .child('customers')
-          .child(userId)
-          .child('cart')
-          .remove();
-
-      if (mounted) {
-        Navigator.pop(context); // Return to previous screen
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Order placed successfully! Please pay on delivery.'),
-            duration: Duration(seconds: 4),
-            backgroundColor: Colors.green,
+      if (_selectedPaymentMethod == 'Card') {
+        // Navigate to payment screen
+        final bool? paymentResult = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PaymentScreen(
+              amount: _totalAmount,
+              orderId: orderId,
+              orderData: orderData,
+            ),
           ),
         );
+
+        if (paymentResult == true) {
+          // Payment was successful, clear cart
+          await FirebaseDatabase.instance
+              .ref()
+              .child('customers')
+              .child(userId)
+              .child('cart')
+              .remove();
+
+          if (mounted) {
+            Navigator.pop(context); // Return to previous screen
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Order placed successfully!'),
+                duration: Duration(seconds: 4),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        }
+      } else {
+        // Cash on Delivery
+        final orderRef = FirebaseDatabase.instance
+            .ref()
+            .child('orders')
+            .child(orderId);
+
+        await orderRef.set(orderData);
+
+        // Clear cart
+        await FirebaseDatabase.instance
+            .ref()
+            .child('customers')
+            .child(userId)
+            .child('cart')
+            .remove();
+
+        if (mounted) {
+          Navigator.pop(context); // Return to previous screen
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Order placed successfully! Please pay on delivery.'),
+              duration: Duration(seconds: 4),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -618,119 +652,5 @@ class _CheckoutPageState extends State<CheckoutPage> {
         });
       }
     }
-  }
-
-  Future<void> _processPayment() async {
-    setState(() {
-      _isProcessing = true;
-    });
-
-    try {
-      if (_selectedPaymentMethod == 'Cash on Delivery') {
-        // Get current user location
-        Position position = await Geolocator.getCurrentPosition();
-        
-        // Create order data
-        final orderData = {
-          'cartItems': widget.cartItems,
-          'latitude': position.latitude,
-          'longitude': position.longitude,
-          'paymentMethod': _selectedPaymentMethod,
-          'restaurantId': widget.cartItems.values.first['restaurantId'],
-          'status': 'pending',
-          'subtotal': widget.subtotal,
-          'tipAmount': _calculateTipAmount(),
-          'tipPercentage': _selectedTipPercentage,
-          'total': _calculateTotal(),
-          'userId': FirebaseAuth.instance.currentUser?.uid,
-          'timestamp': ServerValue.timestamp,
-        };
-
-        // Generate a unique order ID
-        final orderId = FirebaseDatabase.instance
-            .ref()
-            .child('orders')
-            .push()
-            .key;
-
-        if (orderId != null) {
-          // Store order in orders collection
-          await FirebaseDatabase.instance
-              .ref()
-              .child('orders')
-              .child(orderId)
-              .set(orderData);
-
-          // Clear user's cart
-          await FirebaseDatabase.instance
-              .ref()
-              .child('customers')
-              .child(FirebaseAuth.instance.currentUser?.uid ?? '')
-              .child('cart')
-              .remove();
-
-          if (mounted) {
-            // Show success message and navigate back to home
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Order placed successfully!'),
-                backgroundColor: Colors.green,
-              ),
-            );
-            Navigator.of(context).popUntil((route) => route.isFirst);
-          }
-        }
-      } else {
-        // Handle other payment methods (Stripe, etc.)
-        final response = await http.post(
-          Uri.parse('$_serverUrl/create-payment-intent'),
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: json.encode({
-            'amount': (_calculateTotal() * 100).round(),
-            'currency': 'usd',
-          }),
-        );
-
-        if (response.statusCode != 200) {
-          throw Exception('Failed to create payment intent: ${response.body}');
-        }
-
-        final jsonResponse = json.decode(response.body);
-        final clientSecret = jsonResponse['clientSecret'];
-
-        if (clientSecret == null) {
-          throw Exception('Failed to get client secret from server');
-        }
-
-        // Continue with Stripe payment...
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error processing payment: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
-      }
-    }
-  }
-
-  double _calculateTipAmount() {
-    return (widget.subtotal * _selectedTipPercentage / 100);
-  }
-
-  double _calculateTotal() {
-    final tipAmount = _calculateTipAmount();
-    final deliveryFee = 5.00; // Fixed delivery fee
-    return widget.subtotal + tipAmount + deliveryFee;
   }
 } 

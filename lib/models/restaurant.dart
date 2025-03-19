@@ -12,6 +12,8 @@ class Restaurant {
   final DateTime? updatedAt;
   final String? profileImageUrl;
   final String? about;
+  final double? latitude;
+  final double? longitude;
 
   Restaurant({
     required this.id,
@@ -27,6 +29,8 @@ class Restaurant {
     this.updatedAt,
     this.profileImageUrl,
     this.about,
+    this.latitude,
+    this.longitude,
   });
 
   bool get isApproved => status == 'approved';
@@ -49,6 +53,8 @@ class Restaurant {
     DateTime? updatedAt,
     String? profileImageUrl,
     String? about,
+    double? latitude,
+    double? longitude,
   }) {
     return Restaurant(
       id: id ?? this.id,
@@ -64,6 +70,8 @@ class Restaurant {
       updatedAt: updatedAt ?? this.updatedAt,
       profileImageUrl: profileImageUrl ?? this.profileImageUrl,
       about: about ?? this.about,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
     );
   }
 
@@ -86,6 +94,8 @@ class Restaurant {
           : null,
       profileImageUrl: json['profileImageUrl'],
       about: json['about'],
+      latitude: json['latitude']?.toDouble(),
+      longitude: json['longitude']?.toDouble(),
     );
   }
 
@@ -104,6 +114,30 @@ class Restaurant {
       'updatedAt': updatedAt?.millisecondsSinceEpoch,
       'profileImageUrl': profileImageUrl,
       'about': about,
+      'latitude': latitude,
+      'longitude': longitude,
     };
+  }
+
+  factory Restaurant.fromMap(String id, Map<dynamic, dynamic> map) {
+    return Restaurant(
+      id: id,
+      fullName: map['fullName'] ?? '',
+      email: map['email'] ?? '',
+      phone: map['phone'] ?? '',
+      about: map['about'],
+      address: map['address'],
+      profileImageUrl: map['profileImageUrl'],
+      status: map['status'] ?? 'pending_review',
+      documentsSubmitted: map['documentsSubmitted'] ?? false,
+      createdAt: map['createdAt'] != null 
+          ? DateTime.fromMillisecondsSinceEpoch(map['createdAt'])
+          : DateTime.now(),
+      hours: map['hours'] != null
+          ? Map<String, Map<String, dynamic>>.from(map['hours'])
+          : null,
+      latitude: map['latitude']?.toDouble(),
+      longitude: map['longitude']?.toDouble(),
+    );
   }
 } 
