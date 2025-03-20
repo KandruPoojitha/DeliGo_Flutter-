@@ -24,118 +24,104 @@ class SupportChatList extends StatelessWidget {
           return Center(child: Text('No ${userType} chats available'));
         }
 
-        Map<dynamic, dynamic> conversations = 
+        Map<dynamic, dynamic> allMessages = 
             snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
         
-        // Group conversations by user
-        Map<String, List<MapEntry<String, Map<String, dynamic>>>> userConversations = {};
+        // Group messages by userId
+        Map<String, Map<String, dynamic>> userChats = {};
         
-        conversations.forEach((conversationId, messages) {
+        allMessages.forEach((userId, messages) {
           if (messages is Map) {
-            // Check all messages to find ones matching the userType
-            bool hasUserTypeMessage = false;
-            String? userId;
-            String? userName;
+            Map<dynamic, dynamic> userMessages = messages as Map<dynamic, dynamic>;
             
-            (messages as Map<dynamic, dynamic>).forEach((_, messageData) {
-              if (messageData['senderType'] == userType) {
-                hasUserTypeMessage = true;
-                userId = messageData['senderId'] as String;
-                userName = messageData['senderName'] as String;
-              }
-            });
+            // Get user info from any message in the conversation
+            var firstMessage = userMessages.values.first;
+            String userName = firstMessage['senderName'] as String;
+            String messageUserType = firstMessage['senderType'] as String;
             
-            if (hasUserTypeMessage && userId != null && userName != null) {
-              if (!userConversations.containsKey(userId)) {
-                userConversations[userId!] = [];
-              }
+            print('Debug - User: $userName, Type: $messageUserType, Requested Type: $userType'); // Debug print
+            
+            // Include if it matches the requested user type
+            // For customers, include if senderType is not 'driver' or 'restaurant'
+            bool shouldInclude = userType == 'customer' 
+                ? (messageUserType != 'driver' && messageUserType != 'restaurant')
+                : messageUserType == userType;
+                
+            if (shouldInclude) {
+              // Get the latest message
+              var latestMessage = userMessages.entries.reduce((a, b) => 
+                (a.value['timestamp'] as num) > (b.value['timestamp'] as num) ? a : b);
               
-              userConversations[userId!]!.add(MapEntry(
-                conversationId as String,
-                {
-                  'messages': messages,
-                  'userName': userName,
-                  'userId': userId,
-                },
-              ));
+              // Check for unread messages
+              bool hasUnread = userMessages.values.any((message) => 
+                !(message['isRead'] as bool? ?? false)
+              );
+              
+              userChats[userId] = {
+                'userName': userName,
+                'lastMessage': latestMessage.value['message'],
+                'timestamp': latestMessage.value['timestamp'],
+                'hasUnread': hasUnread,
+                'messages': userMessages,
+              };
             }
           }
         });
 
-        if (userConversations.isEmpty) {
-          return Center(child: Text('No ${userType} chats available'));
+        if (userChats.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.chat_outlined,
+                  size: 64,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'No ${userType} chats available',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          );
         }
 
-        // Convert to list and sort by latest message
-        List<MapEntry<String, List<MapEntry<String, Map<String, dynamic>>>>> sortedUsers = 
-            userConversations.entries.toList();
-
-        // Sort users by their most recent message
-        sortedUsers.sort((a, b) {
-          DateTime latestA = a.value.map((conv) {
-            var messages = conv.value['messages'] as Map<dynamic, dynamic>;
-            return messages.entries.map((msg) => 
-                DateTime.fromMillisecondsSinceEpoch((msg.value['timestamp'] as num).toInt())
-            ).reduce((max, date) => date.isAfter(max) ? date : max);
-          }).reduce((max, date) => date.isAfter(max) ? date : max);
-
-          DateTime latestB = b.value.map((conv) {
-            var messages = conv.value['messages'] as Map<dynamic, dynamic>;
-            return messages.entries.map((msg) => 
-                DateTime.fromMillisecondsSinceEpoch((msg.value['timestamp'] as num).toInt())
-            ).reduce((max, date) => date.isAfter(max) ? date : max);
-          }).reduce((max, date) => date.isAfter(max) ? date : max);
-
-          return latestB.compareTo(latestA);
-        });
+        // Convert to list and sort by timestamp
+        var sortedChats = userChats.entries.toList()
+          ..sort((a, b) => (b.value['timestamp'] as num)
+              .compareTo(a.value['timestamp'] as num));
 
         return ListView.builder(
-          itemCount: sortedUsers.length,
+          itemCount: sortedChats.length,
+          padding: const EdgeInsets.all(8),
           itemBuilder: (context, index) {
-            String userId = sortedUsers[index].key;
-            List<MapEntry<String, Map<String, dynamic>>> userConvs = sortedUsers[index].value;
+            final chat = sortedChats[index];
+            final userId = chat.key;
+            final chatData = chat.value;
             
-            // Get the most recent conversation
-            MapEntry<String, Map<String, dynamic>> latestConv = userConvs.reduce((a, b) {
-              DateTime latestA = (a.value['messages'] as Map<dynamic, dynamic>)
-                  .entries
-                  .map((msg) => DateTime.fromMillisecondsSinceEpoch((msg.value['timestamp'] as num).toInt()))
-                  .reduce((max, date) => date.isAfter(max) ? date : max);
-
-              DateTime latestB = (b.value['messages'] as Map<dynamic, dynamic>)
-                  .entries
-                  .map((msg) => DateTime.fromMillisecondsSinceEpoch((msg.value['timestamp'] as num).toInt()))
-                  .reduce((max, date) => date.isAfter(max) ? date : max);
-
-              return latestA.isAfter(latestB) ? a : b;
-            });
-
-            // Get the latest message
-            var messages = latestConv.value['messages'] as Map<dynamic, dynamic>;
-            var latestMessage = messages.entries.reduce((a, b) => 
-                (a.value['timestamp'] as num) > (b.value['timestamp'] as num) ? a : b);
-
-            bool hasUnread = messages.entries
-                .where((msg) => msg.value['senderType'] == userType)
-                .any((msg) => !(msg.value['isRead'] as bool? ?? false));
-
             return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              elevation: 2,
+              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: Colors.orange,
-                  child: Text(latestConv.value['userName'].toString()[0].toUpperCase()),
+                  backgroundColor: const Color(0xFFF4A261),
+                  child: Text(chatData['userName'].toString()[0].toUpperCase()),
                 ),
-                title: Text(latestConv.value['userName'].toString()),
+                title: Text(chatData['userName'].toString()),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      latestMessage.value['message'] as String,
+                      chatData['lastMessage'].toString(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (hasUnread)
+                    if (chatData['hasUnread'])
                       Container(
                         margin: const EdgeInsets.only(top: 4),
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -155,15 +141,22 @@ class SupportChatList extends StatelessWidget {
                       ),
                   ],
                 ),
+                trailing: Text(
+                  _formatTimestamp(chatData['timestamp'] as num),
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                  ),
+                ),
                 onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => ChatDetailPage(
                         userId: userId,
-                        userName: latestConv.value['userName'].toString(),
+                        userName: chatData['userName'],
                         userType: userType,
-                        conversationId: latestConv.key,
+                        conversationId: userId,
                       ),
                     ),
                   );
@@ -174,5 +167,21 @@ class SupportChatList extends StatelessWidget {
         );
       },
     );
+  }
+  
+  String _formatTimestamp(num timestamp) {
+    final now = DateTime.now();
+    final date = DateTime.fromMillisecondsSinceEpoch(timestamp.toInt());
+    final difference = now.difference(date);
+    
+    if (difference.inDays > 0) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      return 'Just now';
+    }
   }
 } 
