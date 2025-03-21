@@ -37,6 +37,46 @@ class SupportChatList extends StatelessWidget {
     }
   }
 
+  Future<String> _getUsername(String userId, String userType) async {
+    try {
+      switch (userType) {
+        case 'customer':
+          final snapshot = await FirebaseDatabase.instance
+              .ref()
+              .child('customers')
+              .child(userId)
+              .child('fullName')
+              .get();
+          return snapshot.value?.toString() ?? 'Unknown Customer';
+
+        case 'driver':
+          final snapshot = await FirebaseDatabase.instance
+              .ref()
+              .child('drivers')
+              .child(userId)
+              .child('fullName')
+              .get();
+          return snapshot.value?.toString() ?? 'Unknown Driver';
+
+        case 'restaurant':
+          final snapshot = await FirebaseDatabase.instance
+              .ref()
+              .child('restaurants')
+              .child(userId)
+              .child('store_info')
+              .child('name')
+              .get();
+          return snapshot.value?.toString() ?? 'Unknown Restaurant';
+
+        default:
+          return 'Unknown User';
+      }
+    } catch (e) {
+      print('Error getting username for $userId ($userType): $e');
+      return 'Unknown User';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
@@ -77,11 +117,9 @@ class SupportChatList extends StatelessWidget {
               if (actualUserType == userType) {
                 var userMessages = messages as Map<dynamic, dynamic>;
                 
-                // Get user info from any message in the conversation
-                var firstMessage = userMessages.values.first;
-                String userName = firstMessage['senderName'] as String;
-                
-                print('Including chat - UserId: $userId, UserName: $userName, Type: $actualUserType');
+                // Get the actual username from the respective collection
+                String userName = await _getUsername(userId, actualUserType ?? 'customer');
+                print('Got username for $userId: $userName');
                 
                 // Get the latest message
                 var latestMessage = userMessages.entries.reduce((a, b) => 
