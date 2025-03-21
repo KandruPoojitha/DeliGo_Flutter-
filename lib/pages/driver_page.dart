@@ -5,6 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/driver_service.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../pages/admin/chat_management/chat_detail_page.dart';
+import '../pages/login_page.dart';
 
 class DriverPage extends StatefulWidget {
   const DriverPage({super.key});
@@ -1497,6 +1499,49 @@ class _DriverPageState extends State<DriverPage> {
           
           const SizedBox(height: 16),
           
+          // Support Chat Card
+          Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Support',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.support_agent, color: Color(0xFFF4A261)),
+                    title: const Text('Contact Support'),
+                    subtitle: const Text('Get help from our support team'),
+                    onTap: () {
+                      // Navigate to support chat
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ChatDetailPage(
+                            userId: _user!.uid,
+                            userName: _user?.displayName ?? 'PizzaDrivr',
+                            userType: 'driver',
+                            conversationId: _user!.uid,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
           Card(
             elevation: 4,
             child: Padding(
@@ -1532,6 +1577,14 @@ class _DriverPageState extends State<DriverPage> {
                                 Navigator.pop(context);
                                 await FirebaseAuth.instance.signOut();
                                 // Navigate to login page
+                                if (mounted) {
+                                  Navigator.of(context).pushAndRemoveUntil(
+                                    MaterialPageRoute(
+                                      builder: (context) => const LoginPage(),
+                                    ),
+                                    (route) => false,
+                                  );
+                                }
                               },
                               child: const Text('Logout'),
                             ),

@@ -23,14 +23,10 @@ class PaymentScreen extends StatefulWidget {
 
 class _PaymentScreenState extends State<PaymentScreen> {
   final String publishableKey = "pk_test_51QycXpPFig18ZUMzhwJmZJPMw7ONj9nxCxbr4zwbIzGo9psQgLM9CQZVSuLNNupCPB6lCNLg0NRNz5Q0mwQ7Fqtw005Mf77ZUV";
-  final String secretKey = "sk_test_51QycXpPFig18ZUMzerj6NO759gulhbh13B9c4DOrsACNwPzABh4psVJudzEIjrPTn7wURMQufxdFrnMcBoZuLwVy00vY2lQpy3";
-  final String customersUrl = "https://api.stripe.com/v1/customers";
-  final String ephemeralKeyUrl = "https://api.stripe.com/v1/ephemeral_keys";
-  final String clientSecretUrl = "https://api.stripe.com/v1/payment_intents";
-
-  String? customerId;
-  String? ephemeralKey;
-  String? clientSecret;
+  // Replace with your backend API URL
+  final String backendApiUrl = "http://10.0.2.2:3000";
+  
+  Map<String, dynamic>? paymentIntent;
   bool _isLoading = false;
   final _user = FirebaseAuth.instance.currentUser;
 
@@ -44,7 +40,33 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Future<void> _initializePayment() async {
     setState(() => _isLoading = true);
     try {
-      await createCustomer();
+      // Get payment intent from backend
+      final response = await http.post(
+        Uri.parse('$backendApiUrl/create-payment-intent'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({
+          'amount': (widget.amount * 100).round(),
+          'currency': 'usd',
+          'customer_email': _user?.email,
+          'customer_name': _user?.displayName,
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to create payment intent');
+      }
+
+      paymentIntent = json.decode(response.body);
+      
+      await stripe.Stripe.instance.initPaymentSheet(
+        paymentSheetParameters: stripe.SetupPaymentSheetParameters(
+          paymentIntentClientSecret: paymentIntent!['client_secret'],
+          merchantDisplayName: "DeliGo",
+          style: ThemeMode.system,
+        ),
+      );
     } catch (e) {
       showError("Failed to initialize payment: ${e.toString()}");
     } finally {
@@ -52,79 +74,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
 
-  Future<void> createCustomer() async {
-    final response = await http.post(
-      Uri.parse(customersUrl),
-      headers: {
-        'Authorization': 'Bearer $secretKey',
-      },
-      body: {
-        'email': _user?.email,
-        'name': _user?.displayName,
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      setState(() {
-        customerId = data['id'];
-      });
-      await getEphemeralKey();
-    } else {
-      showError("Failed to create customer");
-    }
-  }
-
-  Future<void> getEphemeralKey() async {
-    final response = await http.post(
-      Uri.parse(ephemeralKeyUrl),
-      headers: {
-        'Authorization': 'Bearer $secretKey',
-        'Stripe-Version': '2022-11-15',
-      },
-      body: {'customer': customerId},
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      setState(() {
-        ephemeralKey = data['id'];
-      });
-      await getClientSecret();
-    } else {
-      showError("Failed to get ephemeral key");
-    }
-  }
-
-  Future<void> getClientSecret() async {
-    // Convert amount to cents
-    final amountInCents = (widget.amount * 100).round();
-    
-    final response = await http.post(
-      Uri.parse(clientSecretUrl),
-      headers: {
-        'Authorization': 'Bearer $secretKey',
-      },
-      body: {
-        'customer': customerId!,
-        'amount': amountInCents.toString(),
-        'currency': 'usd',
-        'automatic_payment_methods[enabled]': 'true',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      setState(() {
-        clientSecret = data['client_secret'];
-      });
-    } else {
-      showError("Failed to get client secret");
-    }
-  }
-
   Future<void> startPayment() async {
-    if (clientSecret == null) {
+    if (paymentIntent == null) {
       showError("Payment not initialized yet");
       return;
     }
@@ -132,17 +83,22 @@ class _PaymentScreenState extends State<PaymentScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await stripe.Stripe.instance.initPaymentSheet(
-        paymentSheetParameters: stripe.SetupPaymentSheetParameters(
-          paymentIntentClientSecret: clientSecret!,
-          merchantDisplayName: "DeliGo",
-          customerId: customerId,
-          customerEphemeralKeySecret: ephemeralKey,
-          style: ThemeMode.system,
-        ),
+      await stripe.Stripe.instance.presentPaymentSheet();
+      
+      // Verify payment with backend
+      final verifyResponse = await http.post(
+        Uri.parse('$backendApiUrl/verify-payment'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({
+          'payment_intent_id': paymentIntent!['id'],
+        }),
       );
 
-      await stripe.Stripe.instance.presentPaymentSheet();
+      if (verifyResponse.statusCode != 200) {
+        throw Exception('Failed to verify payment');
+      }
       
       // Update order status in Firebase
       await _updateOrderStatus();
@@ -151,7 +107,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       
       // Navigate back to previous screen after successful payment
       if (mounted) {
-        Navigator.of(context).pop(true); // Return true to indicate successful payment
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
       showError("Payment Failed: ${e.toString()}");
@@ -164,12 +120,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
     try {
       final orderRef = FirebaseDatabase.instance.ref().child('orders').child(widget.orderId);
       
-      // Update the order with payment information
       Map<String, dynamic> updateData = {
         ...widget.orderData,
         'paymentStatus': 'paid',
         'paymentMethod': 'card',
         'paymentTimestamp': DateTime.now().toIso8601String(),
+        'stripePaymentIntentId': paymentIntent!['id'],
       };
       
       await orderRef.update(updateData);
@@ -203,7 +159,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         title: const Text("Payment"),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(false), // Return false to indicate payment was cancelled
+          onPressed: () => Navigator.of(context).pop(false),
         ),
       ),
       body: _isLoading
@@ -251,16 +207,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: startPayment,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFF4A261),
-                      foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
                     ),
                     child: const Text(
                       'Pay Now',

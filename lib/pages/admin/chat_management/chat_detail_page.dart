@@ -52,8 +52,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
       'message': _messageController.text.trim(),
       'timestamp': ServerValue.timestamp,
       'senderId': _currentUser?.uid,
-      'senderName': 'Admin Support',
-      'senderType': 'admin',
+      'senderName': widget.userName,
+      'senderType': widget.userType,
       'isRead': false,
     });
 
@@ -139,13 +139,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                       ),
                       child: Row(
                         mainAxisAlignment: isAdmin
-                            ? MainAxisAlignment.end
-                            : MainAxisAlignment.start,
+                            ? MainAxisAlignment.start
+                            : MainAxisAlignment.end,
                         children: [
-                          if (!isAdmin) ...[
+                          if (isAdmin) ...[
                             CircleAvatar(
-                              backgroundColor: Colors.orange,
-                              child: Text(messageData['senderName']?[0].toUpperCase() ?? '?'),
+                              backgroundColor: Colors.blue,
+                              child: const Text('A'),
                             ),
                             const SizedBox(width: 8),
                           ],
@@ -160,8 +160,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                               ),
                               child: Column(
                                 crossAxisAlignment: isAdmin
-                                    ? CrossAxisAlignment.end
-                                    : CrossAxisAlignment.start,
+                                    ? CrossAxisAlignment.start
+                                    : CrossAxisAlignment.end,
                                 children: [
                                   Text(messageData['message'] as String),
                                   const SizedBox(height: 4),
@@ -189,11 +189,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                               ),
                             ),
                           ),
-                          if (isAdmin) ...[
+                          if (!isAdmin) ...[
                             const SizedBox(width: 8),
                             CircleAvatar(
-                              backgroundColor: Colors.blue,
-                              child: const Text('A'),
+                              backgroundColor: Colors.orange,
+                              child: Text(messageData['senderName']?[0].toUpperCase() ?? '?'),
                             ),
                           ],
                         ],
