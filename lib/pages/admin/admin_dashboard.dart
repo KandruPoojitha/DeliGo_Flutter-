@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'user_management/user_management_screen.dart';
-import 'chat_management/chat_management_screen.dart';
+import 'chat_management_page.dart';
 import '../login_page.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -72,7 +72,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => const ChatManagementScreen(),
+                builder: (context) => const ChatManagementPage(),
               ),
             ),
           ),
