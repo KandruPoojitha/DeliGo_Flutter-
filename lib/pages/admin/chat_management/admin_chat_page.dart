@@ -3,13 +3,13 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
-class ChatDetailPage extends StatefulWidget {
+class AdminChatPage extends StatefulWidget {
   final String userId;
   final String userName;
   final String userType;
   final String conversationId;
 
-  const ChatDetailPage({
+  const AdminChatPage({
     super.key,
     required this.userId,
     required this.userName,
@@ -18,10 +18,10 @@ class ChatDetailPage extends StatefulWidget {
   });
 
   @override
-  State<ChatDetailPage> createState() => _ChatDetailPageState();
+  State<AdminChatPage> createState() => _AdminChatPageState();
 }
 
-class _ChatDetailPageState extends State<ChatDetailPage> {
+class _AdminChatPageState extends State<AdminChatPage> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   late final DatabaseReference _messagesRef;
@@ -94,9 +94,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         children: [
           Expanded(
             child: StreamBuilder(
-              stream: _messagesRef
-                  .orderByChild('timestamp')
-                  .onValue,
+              stream: _messagesRef.orderByChild('timestamp').onValue,
               builder: (context, AsyncSnapshot<DatabaseEvent> snapshot) {
                 if (snapshot.hasError) {
                   return Center(child: Text('Error: ${snapshot.error}'));
@@ -106,15 +104,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                   return const Center(child: Text('No messages yet'));
                 }
 
-                Map<dynamic, dynamic> messages = 
-                    snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                Map<dynamic, dynamic> messages =
+                snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
 
                 List<MapEntry<dynamic, dynamic>> chatMessages = messages.entries.toList();
-
-                // Sort messages by timestamp
-                chatMessages.sort((a, b) => 
-                    (a.value['timestamp'] as num)
-                        .compareTo(b.value['timestamp'] as num));
+                chatMessages.sort((a, b) =>
+                    (a.value['timestamp'] as num).compareTo(b.value['timestamp'] as num));
 
                 return ListView.builder(
                   controller: _scrollController,

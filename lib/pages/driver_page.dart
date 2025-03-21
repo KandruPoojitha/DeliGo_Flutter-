@@ -5,6 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/driver_service.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../pages/chat/user_chat_page.dart';
+import '../pages/login_page.dart';
 
 class DriverPage extends StatefulWidget {
   const DriverPage({super.key});
@@ -17,12 +19,11 @@ class _DriverPageState extends State<DriverPage> {
   final _formKey = GlobalKey<FormState>();
   final _driverService = DriverService();
   final _user = FirebaseAuth.instance.currentUser;
-  Timer? _workingHoursTimer;
-  
+
   // Add a stream controller for orders
   final StreamController<DatabaseEvent> _ordersStreamController = StreamController<DatabaseEvent>.broadcast();
   Stream<DatabaseEvent>? _ordersStream;
-  
+
   File? _licenseImage;
   File? _govtIdImage;
   bool _isLoading = false;
@@ -41,28 +42,20 @@ class _DriverPageState extends State<DriverPage> {
     _checkDriverStatus();
     _loadDriverStats();
     _setupOrdersStream();
-    
-    // Start periodic check for working hours
-    _workingHoursTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      _checkWorkingHours();
-    });
-    
-    // Initial check for working hours
-    _checkWorkingHours();
-    
+
     // Force check approval status after a delay
     Future.delayed(const Duration(seconds: 2), () {
       _forceCheckApprovalStatus();
     });
   }
-  
+
   @override
   void dispose() {
-    _workingHoursTimer?.cancel();
+    // Dispose the stream controller
     _ordersStreamController.close();
     super.dispose();
   }
-  
+
   void _setupOrdersStream() {
     if (_user != null) {
       // Create the original stream
@@ -72,7 +65,7 @@ class _DriverPageState extends State<DriverPage> {
           .orderByChild('driverId')
           .equalTo(_user?.uid)
           .onValue;
-      
+
       // Set the broadcast stream
       _ordersStream = originalStream.asBroadcastStream();
     }
@@ -85,15 +78,15 @@ class _DriverPageState extends State<DriverPage> {
         if (driver != null) {
           print('Driver data loaded: ${driver.toMap()}');
           print('Driver status: ${driver.status}, isApproved: ${driver.isApproved}');
-          
+
           // IMPORTANT: Set _isApproved based on the driver's status
           setState(() {
             _isApproved = driver.status == 'approved';
-            
+
             // Also check if the driver is online
             _isOnline = driver.isOnline ?? false;
             _isAvailableForOrders = driver.availableForOrders ?? true;
-            
+
             if (driver.hours != null) {
               try {
                 // Convert stored hours string to TimeOfDay
@@ -101,12 +94,12 @@ class _DriverPageState extends State<DriverPage> {
                 final endParts = driver.hours!['end'].toString().split(':');
                 if (startParts.length >= 2 && endParts.length >= 2) {
                   _startTime = TimeOfDay(
-                    hour: int.parse(startParts[0]),
-                    minute: int.parse(startParts[1])
+                      hour: int.parse(startParts[0]),
+                      minute: int.parse(startParts[1])
                   );
                   _endTime = TimeOfDay(
-                    hour: int.parse(endParts[0]),
-                    minute: int.parse(endParts[1])
+                      hour: int.parse(endParts[0]),
+                      minute: int.parse(endParts[1])
                   );
                 }
               } catch (e) {
@@ -115,7 +108,7 @@ class _DriverPageState extends State<DriverPage> {
               }
             }
           });
-          
+
           // Debug: Check if we're loading the correct UI
           print('UI state after loading driver: isApproved = $_isApproved');
         } else {
@@ -132,7 +125,7 @@ class _DriverPageState extends State<DriverPage> {
       try {
         // Get today's date in YYYY-MM-DD format
         final today = DateTime.now().toIso8601String().split('T')[0];
-        
+
         // Query completed deliveries for today
         final deliveriesSnapshot = await FirebaseDatabase.instance
             .ref()
@@ -140,20 +133,20 @@ class _DriverPageState extends State<DriverPage> {
             .orderByChild('driverId')
             .equalTo(_user!.uid)
             .get();
-            
+
         if (deliveriesSnapshot.exists) {
           final deliveries = deliveriesSnapshot.children.where((delivery) {
             final data = delivery.value as Map<dynamic, dynamic>;
             final deliveryDate = (data['completedAt'] as String?)?.split('T')[0];
             return deliveryDate == today && data['status'] == 'completed';
           });
-          
+
           double totalEarnings = 0;
           for (var delivery in deliveries) {
             final data = delivery.value as Map<dynamic, dynamic>;
             totalEarnings += (data['driverEarnings'] as num?)?.toDouble() ?? 0;
           }
-          
+
           setState(() {
             _deliveriesCount = deliveries.length;
             _earnings = totalEarnings;
@@ -165,94 +158,40 @@ class _DriverPageState extends State<DriverPage> {
     }
   }
 
-  void _checkWorkingHours() {
-    if (_user != null && _isApproved) {
-      final now = TimeOfDay.now();
-      final currentMinutes = now.hour * 60 + now.minute;
-      final startMinutes = _startTime.hour * 60 + _startTime.minute;
-      final endMinutes = _endTime.hour * 60 + _endTime.minute;
-      
-      bool shouldBeOnline;
-      
-      // Handle cases where end time is on the next day (e.g., 22:00 - 06:00)
-      if (endMinutes < startMinutes) {
-        // If current time is after start time OR before end time
-        shouldBeOnline = currentMinutes >= startMinutes || currentMinutes <= endMinutes;
-      } else {
-        // Normal case: start time and end time are on the same day
-        shouldBeOnline = currentMinutes >= startMinutes && currentMinutes <= endMinutes;
-      }
-      
-      if (shouldBeOnline != _isOnline) {
-        _updateOnlineStatus(shouldBeOnline);
-      }
-    }
-  }
-
-  Future<void> _updateOnlineStatus(bool online) async {
+  Future<void> _toggleOnlineStatus() async {
     if (_user != null) {
+      setState(() {
+        _isOnline = !_isOnline;
+      });
+
       try {
         await FirebaseDatabase.instance
             .ref()
             .child('drivers')
             .child(_user!.uid)
             .update({
-          'isOnline': online,
+          'isOnline': _isOnline,
           'updatedAt': DateTime.now().toIso8601String(),
-          'lastStatusChange': {
-            'status': online ? 'online' : 'offline',
-            'timestamp': DateTime.now().toIso8601String(),
-            'reason': online ? 'within_working_hours' : 'outside_working_hours'
-          }
         });
-        
-        setState(() {
-          _isOnline = online;
-        });
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(online 
-                ? 'You are now online (Working hours: ${_formatTimeOfDay(_startTime)} - ${_formatTimeOfDay(_endTime)})'
-                : 'You are now offline (Outside working hours)'),
-              backgroundColor: online ? Colors.green : Colors.grey,
-            ),
-          );
-        }
-      } catch (e) {
-        print('Error updating online status: $e');
-      }
-    }
-  }
 
-  Future<void> _toggleOnlineStatus() async {
-    if (_user != null) {
-      final now = TimeOfDay.now();
-      final currentMinutes = now.hour * 60 + now.minute;
-      final startMinutes = _startTime.hour * 60 + _startTime.minute;
-      final endMinutes = _endTime.hour * 60 + _endTime.minute;
-      
-      bool isWithinWorkingHours;
-      
-      // Handle cases where end time is on the next day
-      if (endMinutes < startMinutes) {
-        isWithinWorkingHours = currentMinutes >= startMinutes || currentMinutes <= endMinutes;
-      } else {
-        isWithinWorkingHours = currentMinutes >= startMinutes && currentMinutes <= endMinutes;
-      }
-      
-      if (!isWithinWorkingHours && !_isOnline) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Cannot go online outside working hours (${_formatTimeOfDay(_startTime)} - ${_formatTimeOfDay(_endTime)})'),
-            backgroundColor: Colors.orange,
+            content: Text('You are now ${_isOnline ? 'online' : 'offline'}'),
+            backgroundColor: _isOnline ? Colors.green : Colors.grey,
           ),
         );
-        return;
+      } catch (e) {
+        setState(() {
+          _isOnline = !_isOnline; // Revert on error
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating status: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
-      
-      await _updateOnlineStatus(!_isOnline);
     }
   }
 
@@ -261,7 +200,7 @@ class _DriverPageState extends State<DriverPage> {
       setState(() {
         _isAvailableForOrders = !_isAvailableForOrders;
       });
-      
+
       try {
         await FirebaseDatabase.instance
             .ref()
@@ -275,7 +214,7 @@ class _DriverPageState extends State<DriverPage> {
         setState(() {
           _isAvailableForOrders = !_isAvailableForOrders; // Revert on error
         });
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error updating availability: $e'),
@@ -289,7 +228,7 @@ class _DriverPageState extends State<DriverPage> {
   Future<void> _pickImage(bool isLicense) async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-    
+
     if (image != null) {
       setState(() {
         if (isLicense) {
@@ -339,7 +278,7 @@ class _DriverPageState extends State<DriverPage> {
         _licenseImage!,
         'drivers/${_user!.uid}/license.jpg',
       );
-      
+
       final govtIdUrl = await _driverService.uploadImage(
         _govtIdImage!,
         'drivers/${_user!.uid}/govt_id.jpg',
@@ -372,7 +311,7 @@ class _DriverPageState extends State<DriverPage> {
         },
         'updatedAt': now,
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Documents submitted for approval')),
@@ -400,13 +339,13 @@ class _DriverPageState extends State<DriverPage> {
             .child('drivers')
             .child(_user!.uid)
             .get();
-            
+
         if (snapshot.exists) {
           final data = snapshot.value as Map<dynamic, dynamic>;
-          
+
           // Try to get status from different possible locations
           String? status = data['status'] as String?;
-          
+
           // If status is null, try to get it from documents.status
           if (status == null && data['documents'] != null) {
             final documents = data['documents'] as Map<dynamic, dynamic>?;
@@ -414,20 +353,20 @@ class _DriverPageState extends State<DriverPage> {
               status = documents['status'] as String?;
             }
           }
-          
+
           print('Force checking approval status: $status');
           print('Full driver data: $data');
-          
+
           // Check if status is 'approved'
           final bool shouldBeApproved = status == 'approved';
-          
+
           if (shouldBeApproved != _isApproved) {
             setState(() {
               _isApproved = shouldBeApproved;
             });
             print('Fixed approval status: $_isApproved');
           }
-          
+
           // For testing: Uncomment this line to force approved status
           // setState(() { _isApproved = true; });
         }
@@ -441,7 +380,7 @@ class _DriverPageState extends State<DriverPage> {
     if (_user != null) {
       try {
         final now = DateTime.now().toIso8601String();
-        
+
         // Update both root status and documents.status
         await FirebaseDatabase.instance
             .ref()
@@ -451,7 +390,7 @@ class _DriverPageState extends State<DriverPage> {
           'status': newStatus,
           'updatedAt': now,
         });
-        
+
         // Also update documents.status if it exists
         final snapshot = await FirebaseDatabase.instance
             .ref()
@@ -459,7 +398,7 @@ class _DriverPageState extends State<DriverPage> {
             .child(_user!.uid)
             .child('documents')
             .get();
-            
+
         if (snapshot.exists) {
           await FirebaseDatabase.instance
               .ref()
@@ -471,14 +410,14 @@ class _DriverPageState extends State<DriverPage> {
             'updatedAt': now,
           });
         }
-        
+
         print('Manually updated driver status to: $newStatus');
-        
+
         // Refresh the UI
         setState(() {
           _isApproved = newStatus == 'approved';
         });
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Status updated to: $newStatus'),
@@ -546,9 +485,9 @@ class _DriverPageState extends State<DriverPage> {
               ),
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // Available for Orders Card
           Card(
             elevation: 4,
@@ -592,9 +531,9 @@ class _DriverPageState extends State<DriverPage> {
               ),
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // Today's Stats Card
           Card(
             elevation: 4,
@@ -630,9 +569,9 @@ class _DriverPageState extends State<DriverPage> {
               ),
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // Available Orders Card
           Card(
             elevation: 4,
@@ -660,13 +599,13 @@ class _DriverPageState extends State<DriverPage> {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Center(child: CircularProgressIndicator());
                       }
-                      
+
                       if (snapshot.hasError) {
                         return Center(
                           child: Text('Error: ${snapshot.error}'),
                         );
                       }
-                      
+
                       if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
                         return const Center(
                           child: Text(
@@ -678,11 +617,11 @@ class _DriverPageState extends State<DriverPage> {
                           ),
                         );
                       }
-                      
+
                       try {
                         final ordersData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
                         final orders = ordersData.entries.toList();
-                        
+
                         if (orders.isEmpty) {
                           return const Center(
                             child: Text(
@@ -694,7 +633,7 @@ class _DriverPageState extends State<DriverPage> {
                             ),
                           );
                         }
-                        
+
                         return ListView.builder(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
@@ -705,7 +644,7 @@ class _DriverPageState extends State<DriverPage> {
                             final restaurantName = order['restaurantName'] as String? ?? 'Restaurant';
                             final customerAddress = order['deliveryAddress'] as String? ?? 'Address';
                             final totalAmount = (order['totalAmount'] as num?)?.toDouble() ?? 0.0;
-                            
+
                             return ListTile(
                               title: Text('Order #$orderId'),
                               subtitle: Column(
@@ -756,7 +695,7 @@ class _DriverPageState extends State<DriverPage> {
       ),
     );
   }
-  
+
   Widget _buildStatItem(String label, String value, IconData icon) {
     return Column(
       children: [
@@ -779,7 +718,7 @@ class _DriverPageState extends State<DriverPage> {
       ],
     );
   }
-  
+
   Widget _buildOrdersTab() {
     return DefaultTabController(
       length: 2,
@@ -805,21 +744,8 @@ class _DriverPageState extends State<DriverPage> {
       ),
     );
   }
-  
-  Widget _buildCurrentOrdersTab() {
-    if (!_isAvailableForOrders) {
-      return const Center(
-        child: Text(
-          'You are not available for orders.\nMake yourself available to see orders.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 16,
-            color: Colors.grey,
-          ),
-        ),
-      );
-    }
 
+  Widget _buildCurrentOrdersTab() {
     if (_ordersStream == null) {
       return const Center(
         child: Text(
@@ -831,25 +757,20 @@ class _DriverPageState extends State<DriverPage> {
         ),
       );
     }
-    
+
     return StreamBuilder<DatabaseEvent>(
-      stream: FirebaseDatabase.instance
-          .ref()
-          .child('orders')
-          .orderByChild('driverId')
-          .equalTo(_user?.uid)
-          .onValue,
+      stream: _ordersStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        
+
         if (snapshot.hasError) {
           return Center(
             child: Text('Error: ${snapshot.error}'),
           );
         }
-        
+
         if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
           return const Center(
             child: Text(
@@ -861,7 +782,7 @@ class _DriverPageState extends State<DriverPage> {
             ),
           );
         }
-        
+
         try {
           final data = snapshot.data!.snapshot.value;
           if (data == null) {
@@ -875,25 +796,21 @@ class _DriverPageState extends State<DriverPage> {
               ),
             );
           }
-          
+
           final ordersData = data as Map<dynamic, dynamic>;
           final currentOrders = ordersData.entries
               .where((entry) {
-                final order = entry.value as Map<dynamic, dynamic>;
-                final status = order['status'] as String?;
-                final orderStatus = order['order_status'] as String?;
-                final driverId = order['driverId'] as String?;
-                
-                return status == 'in_progress' && 
-                       (orderStatus == 'assigned_driver' || orderStatus == 'driver_assigned') &&
-                       driverId == _user?.uid;
-              })
+            final order = entry.value as Map<dynamic, dynamic>;
+            final status = order['status'] as String?;
+            // Current orders are those that are assigned to the driver but not completed or cancelled
+            return status == 'assigned_to_driver' || status == 'out_for_delivery';
+          })
               .toList();
-          
+
           if (currentOrders.isEmpty) {
             return const Center(
               child: Text(
-                'No assigned orders',
+                'No current orders',
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.grey,
@@ -901,19 +818,20 @@ class _DriverPageState extends State<DriverPage> {
               ),
             );
           }
-          
+
           return ListView.builder(
             padding: const EdgeInsets.all(16.0),
             itemCount: currentOrders.length,
             itemBuilder: (context, index) {
               final order = currentOrders[index].value as Map<dynamic, dynamic>;
-              final orderId = currentOrders[index].key;
+              final orderId = currentOrders[index].key as String;
+              final status = order['status'] as String?;
               final restaurantName = order['restaurantName'] as String? ?? 'Restaurant';
               final customerName = order['customerName'] as String? ?? 'Customer';
               final customerAddress = order['deliveryAddress'] as String? ?? 'Address';
               final totalAmount = (order['totalAmount'] as num?)?.toDouble() ?? 0.0;
               final orderTime = order['createdAt'] as String?;
-              
+
               return Card(
                 margin: const EdgeInsets.only(bottom: 16.0),
                 child: Padding(
@@ -925,26 +843,13 @@ class _DriverPageState extends State<DriverPage> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'Order #${orderId.toString()}',
+                            'Order #$orderId',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Text(
-                              'Assigned',
-                              style: TextStyle(
-                                color: Colors.orange,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
+                          _buildStatusChip(status ?? 'unknown'),
                         ],
                       ),
                       const Divider(),
@@ -966,7 +871,7 @@ class _DriverPageState extends State<DriverPage> {
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: const Icon(Icons.access_time, color: Color(0xFFF4A261)),
-                          title: const Text('Order Time'),
+                          title: Text('Order Time'),
                           subtitle: Text(_formatDateTime(orderTime)),
                           dense: true,
                         ),
@@ -991,24 +896,31 @@ class _DriverPageState extends State<DriverPage> {
                       Row(
                         children: [
                           Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => _acceptOrder(orderId),
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                // Navigate to order details or map
+                              },
+                              icon: const Icon(Icons.directions),
+                              label: const Text('Navigate'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
+                                backgroundColor: const Color(0xFFF4A261),
                                 foregroundColor: Colors.white,
                               ),
-                              child: const Text('ACCEPT'),
                             ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => _rejectOrder(orderId),
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                // Mark as delivered
+                                _updateOrderStatus(orderId, 'delivered');
+                              },
+                              icon: const Icon(Icons.check_circle),
+                              label: const Text('Delivered'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
+                                backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
                               ),
-                              child: const Text('REJECT'),
                             ),
                           ),
                         ],
@@ -1027,65 +939,7 @@ class _DriverPageState extends State<DriverPage> {
       },
     );
   }
-  
-  Future<void> _acceptOrder(dynamic orderId) async {
-    try {
-      await FirebaseDatabase.instance
-          .ref()
-          .child('orders')
-          .child(orderId.toString())
-          .update({
-        'status': 'in_progress',
-        'order_status': 'accepted_by_driver',
-        'updatedAt': DateTime.now().toIso8601String(),
-      });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Order accepted successfully'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error accepting order: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _rejectOrder(dynamic orderId) async {
-    try {
-      await FirebaseDatabase.instance
-          .ref()
-          .child('orders')
-          .child(orderId.toString())
-          .update({
-        'status': 'pending',
-        'order_status': 'driver_rejected',
-        'driverId': null,
-        'driverName': null,
-        'updatedAt': DateTime.now().toIso8601String(),
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Order rejected'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error rejecting order: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-  
   Widget _buildPastOrdersTab() {
     if (_ordersStream == null) {
       return const Center(
@@ -1098,20 +952,20 @@ class _DriverPageState extends State<DriverPage> {
         ),
       );
     }
-    
+
     return StreamBuilder<DatabaseEvent>(
       stream: _ordersStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        
+
         if (snapshot.hasError) {
           return Center(
             child: Text('Error: ${snapshot.error}'),
           );
         }
-        
+
         if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
           return const Center(
             child: Text(
@@ -1123,7 +977,7 @@ class _DriverPageState extends State<DriverPage> {
             ),
           );
         }
-        
+
         try {
           final data = snapshot.data!.snapshot.value;
           if (data == null) {
@@ -1137,17 +991,17 @@ class _DriverPageState extends State<DriverPage> {
               ),
             );
           }
-          
+
           final ordersData = data as Map<dynamic, dynamic>;
           final pastOrders = ordersData.entries
               .where((entry) {
-                final order = entry.value as Map<dynamic, dynamic>;
-                final status = order['status'] as String?;
-                // Past orders are those that are completed or cancelled
-                return status == 'delivered' || status == 'cancelled';
-              })
+            final order = entry.value as Map<dynamic, dynamic>;
+            final status = order['status'] as String?;
+            // Past orders are those that are completed or cancelled
+            return status == 'delivered' || status == 'cancelled';
+          })
               .toList();
-          
+
           // Sort by date (newest first)
           pastOrders.sort((a, b) {
             final orderA = a.value as Map<dynamic, dynamic>;
@@ -1156,7 +1010,7 @@ class _DriverPageState extends State<DriverPage> {
             final dateB = orderB['updatedAt'] as String? ?? '';
             return dateB.compareTo(dateA);
           });
-          
+
           if (pastOrders.isEmpty) {
             return const Center(
               child: Text(
@@ -1168,7 +1022,7 @@ class _DriverPageState extends State<DriverPage> {
               ),
             );
           }
-          
+
           return ListView.builder(
             padding: const EdgeInsets.all(16.0),
             itemCount: pastOrders.length,
@@ -1183,7 +1037,7 @@ class _DriverPageState extends State<DriverPage> {
               final orderTime = order['createdAt'] as String?;
               final completedTime = order['updatedAt'] as String?;
               final earnings = (order['driverEarnings'] as num?)?.toDouble() ?? 0.0;
-              
+
               return Card(
                 margin: const EdgeInsets.only(bottom: 16.0),
                 child: Padding(
@@ -1275,11 +1129,11 @@ class _DriverPageState extends State<DriverPage> {
       },
     );
   }
-  
+
   Widget _buildStatusChip(String status) {
     Color color;
     String label;
-    
+
     switch (status) {
       case 'assigned_to_driver':
         color = Colors.blue;
@@ -1301,7 +1155,7 @@ class _DriverPageState extends State<DriverPage> {
         color = Colors.grey;
         label = 'Unknown';
     }
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -1319,7 +1173,7 @@ class _DriverPageState extends State<DriverPage> {
       ),
     );
   }
-  
+
   String _formatDateTime(String isoString) {
     try {
       final dateTime = DateTime.parse(isoString);
@@ -1525,9 +1379,9 @@ class _DriverPageState extends State<DriverPage> {
   Future<void> _updateOrderStatus(String orderId, String status) async {
     try {
       setState(() => _isLoading = true);
-      
+
       final now = DateTime.now().toIso8601String();
-      
+
       await FirebaseDatabase.instance
           .ref()
           .child('orders')
@@ -1536,7 +1390,7 @@ class _DriverPageState extends State<DriverPage> {
         'status': status,
         'updatedAt': now,
       });
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Order marked as $status'),
@@ -1554,7 +1408,7 @@ class _DriverPageState extends State<DriverPage> {
       setState(() => _isLoading = false);
     }
   }
-  
+
   Widget _buildAccountTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -1642,9 +1496,52 @@ class _DriverPageState extends State<DriverPage> {
               ),
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
+          // Support Chat Card
+          Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Support',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.support_agent, color: Color(0xFFF4A261)),
+                    title: const Text('Contact Support'),
+                    subtitle: const Text('Get help from our support team'),
+                    onTap: () {
+                      // Navigate to support chat
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => UserChatPage(
+                            userId: _user!.uid,
+                            userName: _user?.displayName ?? 'PizzaDrivr',
+                            userType: 'driver',
+                            conversationId: _user!.uid,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
           Card(
             elevation: 4,
             child: Padding(
@@ -1680,6 +1577,14 @@ class _DriverPageState extends State<DriverPage> {
                                 Navigator.pop(context);
                                 await FirebaseAuth.instance.signOut();
                                 // Navigate to login page
+                                if (mounted) {
+                                  Navigator.of(context).pushAndRemoveUntil(
+                                    MaterialPageRoute(
+                                      builder: (context) => const LoginPage(),
+                                    ),
+                                        (route) => false,
+                                  );
+                                }
                               },
                               child: const Text('Logout'),
                             ),
@@ -1696,12 +1601,12 @@ class _DriverPageState extends State<DriverPage> {
       ),
     );
   }
-  
+
   Future<void> _updateWorkingHours() async {
     if (_user != null) {
       try {
         setState(() => _isLoading = true);
-        
+
         await FirebaseDatabase.instance
             .ref()
             .child('drivers')
@@ -1713,7 +1618,7 @@ class _DriverPageState extends State<DriverPage> {
           },
           'updatedAt': DateTime.now().toIso8601String(),
         });
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Working hours updated'),
