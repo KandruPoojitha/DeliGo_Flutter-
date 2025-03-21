@@ -3,13 +3,13 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
-class ChatDetailPage extends StatefulWidget {
+class AdminChatPage extends StatefulWidget {
   final String userId;
   final String userName;
   final String userType;
   final String conversationId;
 
-  const ChatDetailPage({
+  const AdminChatPage({
     super.key,
     required this.userId,
     required this.userName,
@@ -18,10 +18,10 @@ class ChatDetailPage extends StatefulWidget {
   });
 
   @override
-  State<ChatDetailPage> createState() => _ChatDetailPageState();
+  State<AdminChatPage> createState() => _AdminChatPageState();
 }
 
-class _ChatDetailPageState extends State<ChatDetailPage> {
+class _AdminChatPageState extends State<AdminChatPage> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   late final DatabaseReference _messagesRef;
@@ -52,8 +52,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
       'message': _messageController.text.trim(),
       'timestamp': ServerValue.timestamp,
       'senderId': _currentUser?.uid,
-      'senderName': widget.userName,
-      'senderType': widget.userType,
+      'senderName': 'Admin Support',
+      'senderType': 'admin',
       'isRead': false,
     });
 
@@ -94,9 +94,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         children: [
           Expanded(
             child: StreamBuilder(
-              stream: _messagesRef
-                  .orderByChild('timestamp')
-                  .onValue,
+              stream: _messagesRef.orderByChild('timestamp').onValue,
               builder: (context, AsyncSnapshot<DatabaseEvent> snapshot) {
                 if (snapshot.hasError) {
                   return Center(child: Text('Error: ${snapshot.error}'));
@@ -110,11 +108,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                     snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
 
                 List<MapEntry<dynamic, dynamic>> chatMessages = messages.entries.toList();
-
-                // Sort messages by timestamp
                 chatMessages.sort((a, b) => 
-                    (a.value['timestamp'] as num)
-                        .compareTo(b.value['timestamp'] as num));
+                    (a.value['timestamp'] as num).compareTo(b.value['timestamp'] as num));
 
                 return ListView.builder(
                   controller: _scrollController,
@@ -139,13 +134,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                       ),
                       child: Row(
                         mainAxisAlignment: isAdmin
-                            ? MainAxisAlignment.start
-                            : MainAxisAlignment.end,
+                            ? MainAxisAlignment.end
+                            : MainAxisAlignment.start,
                         children: [
-                          if (isAdmin) ...[
+                          if (!isAdmin) ...[
                             CircleAvatar(
-                              backgroundColor: Colors.blue,
-                              child: const Text('A'),
+                              backgroundColor: Colors.orange,
+                              child: Text(messageData['senderName']?[0].toUpperCase() ?? '?'),
                             ),
                             const SizedBox(width: 8),
                           ],
@@ -160,8 +155,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                               ),
                               child: Column(
                                 crossAxisAlignment: isAdmin
-                                    ? CrossAxisAlignment.start
-                                    : CrossAxisAlignment.end,
+                                    ? CrossAxisAlignment.end
+                                    : CrossAxisAlignment.start,
                                 children: [
                                   Text(messageData['message'] as String),
                                   const SizedBox(height: 4),
@@ -189,11 +184,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                               ),
                             ),
                           ),
-                          if (!isAdmin) ...[
+                          if (isAdmin) ...[
                             const SizedBox(width: 8),
                             CircleAvatar(
-                              backgroundColor: Colors.orange,
-                              child: Text(messageData['senderName']?[0].toUpperCase() ?? '?'),
+                              backgroundColor: Colors.blue,
+                              child: const Text('A'),
                             ),
                           ],
                         ],

@@ -5,7 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/driver_service.dart';
 import 'package:firebase_database/firebase_database.dart';
-import '../pages/admin/chat_management/chat_detail_page.dart';
+import '../pages/chat/user_chat_page.dart';
 import '../pages/login_page.dart';
 
 class DriverPage extends StatefulWidget {
@@ -1525,7 +1525,7 @@ class _DriverPageState extends State<DriverPage> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => ChatDetailPage(
+                          builder: (context) => UserChatPage(
                             userId: _user!.uid,
                             userName: _user?.displayName ?? 'PizzaDrivr',
                             userType: 'driver',
