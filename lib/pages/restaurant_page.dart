@@ -88,37 +88,30 @@ class _RestaurantPageState extends State<RestaurantPage> {
       print('User email: ${_user!.email}');
 
       try {
-        final restaurant = await _restaurantService.getRestaurant(_user!.uid);
-        print('Restaurant data loaded: ${restaurant?.toMap()}');
+        // Get the restaurant data directly from Firebase to ensure we have the latest isOpen status
+        final snapshot = await FirebaseDatabase.instance
+            .ref()
+            .child('restaurants')
+            .child(_user!.uid)
+            .get();
 
-        if (restaurant != null) {
-          print('Setting restaurant data in state:');
-          print('Full Name: ${restaurant.fullName}');
-          print('Email: ${restaurant.email}');
-
+        if (snapshot.exists) {
+          final restaurantData = snapshot.value as Map<dynamic, dynamic>;
+          
           if (mounted) {
             setState(() {
-              _restaurant = restaurant;
-              _updateOpenStatus(restaurant);
-              _nameController.text = restaurant.fullName;
-              _emailController.text = restaurant.email;
-              _phoneController.text = restaurant.phone;
-              _addressController.text = restaurant.address ?? '';
-              if (restaurant.hours != null) {
-                _businessHours = Map<String, Map<String, dynamic>>.from(restaurant.hours!);
+              _isOpen = restaurantData['isOpen'] ?? false;
+              _nameController.text = restaurantData['fullName'] ?? '';
+              _emailController.text = restaurantData['email'] ?? '';
+              _phoneController.text = restaurantData['phone'] ?? '';
+              _addressController.text = restaurantData['address'] ?? '';
+              if (restaurantData['store_hours'] != null) {
+                _businessHours = Map<String, Map<String, dynamic>>.from(restaurantData['store_hours']);
               }
             });
-            print('State updated with restaurant data');
           }
         } else {
           print('No restaurant data found for user: ${_user!.uid}');
-          // Try to fetch the data directly from Firebase to debug
-          final snapshot = await FirebaseDatabase.instance
-              .ref()
-              .child('restaurants')
-              .child(_user!.uid)
-              .get();
-          print('Direct Firebase data: ${snapshot.value}');
         }
       } catch (e) {
         print('Error loading restaurant data: $e');
@@ -170,54 +163,38 @@ class _RestaurantPageState extends State<RestaurantPage> {
   }
 
   Future<void> _toggleOpenStatus() async {
-    if (_restaurant != null) {
-      final newStatus = !_isOpen;
-      try {
-        final now = DateTime.now();
-        final currentDay = _getDayName(now.weekday);
+    final newStatus = !_isOpen;
+    try {
+      // Update root level isOpen
+      await FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(_user!.uid)
+          .update({
+        'isOpen': newStatus,
+        'updatedAt': ServerValue.timestamp,
+      });
 
-        // Update both store_hours and root level isOpen
-        await Future.wait([
-          FirebaseDatabase.instance
-              .ref()
-              .child('restaurants')
-              .child(_user!.uid)
-              .child('store_hours')
-              .child(currentDay)
-              .update({
-            'isOpen': newStatus,
-          }),
-          FirebaseDatabase.instance
-              .ref()
-              .child('restaurants')
-              .child(_user!.uid)
-              .update({
-            'isOpen': newStatus,
-          })
-        ]);
+      setState(() {
+        _isOpen = newStatus;
+      });
 
-        setState(() {
-          _isOpen = newStatus;
-          _businessHours[currentDay]!['isOpen'] = newStatus;
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Restaurant is now ${newStatus ? 'open' : 'closed'}'),
-              backgroundColor: newStatus ? Colors.green : Colors.red,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Error updating restaurant status'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Restaurant is now ${newStatus ? 'open' : 'closed'}'),
+            backgroundColor: newStatus ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error updating restaurant status'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
