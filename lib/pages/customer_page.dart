@@ -6,6 +6,7 @@ import 'login_page.dart';
 import 'restaurant_details_page.dart';
 import 'checkout_page.dart';
 import 'support_chat_detail.dart';
+import 'edit_customer_profile_page.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -1127,14 +1128,40 @@ class _CustomerPageState extends State<CustomerPage> {
                         final userData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
                         return Column(
                           children: [
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: const CircleAvatar(
-                                backgroundColor: Color(0xFFF4A261),
-                                child: Icon(Icons.person, color: Colors.white),
-                              ),
-                              title: Text(userData['fullName'] ?? 'Customer'),
-                              subtitle: Text(userData['email'] ?? ''),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: const CircleAvatar(
+                                      backgroundColor: Color(0xFFF4A261),
+                                      child: Icon(Icons.person, color: Colors.white),
+                                    ),
+                                    title: Text(userData['fullName'] ?? 'Customer'),
+                                    subtitle: Text(userData['email'] ?? ''),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.edit),
+                                  onPressed: () async {
+                                    final result = await Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => EditCustomerProfilePage(
+                                          customerId: FirebaseAuth.instance.currentUser?.uid ?? '',
+                                          currentName: userData['fullName'] ?? '',
+                                          currentPhone: userData['phone'] ?? '',
+                                        ),
+                                      ),
+                                    );
+                                    
+                                    if (result == true) {
+                                      setState(() {}); // Refresh the page
+                                    }
+                                  },
+                                  color: const Color(0xFFF4A261),
+                                ),
+                              ],
                             ),
                             const Divider(),
                             _buildInfoRow('Phone', userData['phone'] ?? 'Not provided'),
