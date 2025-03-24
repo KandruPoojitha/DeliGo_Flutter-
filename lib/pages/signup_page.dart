@@ -49,9 +49,9 @@ class _SignupPageState extends State<SignupPage> {
     if (value == null || value.isEmpty) {
       return 'Please enter your full name';
     }
-    if (!_nameRegex.hasMatch(value)) {
-      return 'Please enter a valid name (letters and spaces only, minimum 2 characters)';
-    }
+    // if (!_nameRegex.hasMatch(value)) {
+    //   return 'Please enter a valid name (letters and spaces only, minimum 2 characters)';
+    // }
     return null;
   }
 
@@ -69,9 +69,9 @@ class _SignupPageState extends State<SignupPage> {
     if (value == null || value.isEmpty) {
       return 'Please enter a password';
     }
-    if (!_passwordRegex.hasMatch(value)) {
-      return 'Password must be at least 8 characters and contain at least one letter and one number';
-    }
+    // if (!_passwordRegex.hasMatch(value)) {
+    //   return 'Password must be at least 8 characters and contain at least one letter and one number';
+    // }
     return null;
   }
 

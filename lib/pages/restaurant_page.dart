@@ -43,13 +43,13 @@ class _RestaurantPageState extends State<RestaurantPage> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
   Map<String, Map<String, dynamic>> _businessHours = {
-    'Monday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
-    'Tuesday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
-    'Wednesday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
-    'Thursday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
-    'Friday': {'opening': '09:00', 'closing': '23:00', 'isOpen': true},
-    'Saturday': {'opening': '09:00', 'closing': '23:00', 'isOpen': true},
-    'Sunday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
+    'monday': {'openTime': '09:00', 'closeTime': '22:00', 'isOpen': true},
+    'tuesday': {'openTime': '09:00', 'closeTime': '22:00', 'isOpen': true},
+    'wednesday': {'openTime': '09:00', 'closeTime': '22:00', 'isOpen': true},
+    'thursday': {'openTime': '09:00', 'closeTime': '22:00', 'isOpen': true},
+    'friday': {'openTime': '09:00', 'closeTime': '23:00', 'isOpen': true},
+    'saturday': {'openTime': '09:00', 'closeTime': '23:00', 'isOpen': true},
+    'sunday': {'openTime': '09:00', 'closeTime': '22:00', 'isOpen': true},
   };
   List<Map<String, dynamic>> _predictions = [];
   bool _isLoadingAddresses = false;
@@ -136,8 +136,8 @@ class _RestaurantPageState extends State<RestaurantPage> {
 
       final dayHours = _businessHours[currentDay];
       if (dayHours != null) {
-        final openingTime = dayHours['opening'] as String;
-        final closingTime = dayHours['closing'] as String;
+        final openingTime = dayHours['openTime'] as String;
+        final closingTime = dayHours['closeTime'] as String;
         final isDayOpen = dayHours['isOpen'] as bool;
 
         final isCurrentlyOpen = isDayOpen &&
@@ -223,14 +223,14 @@ class _RestaurantPageState extends State<RestaurantPage> {
 
   String _getDayName(int weekday) {
     switch (weekday) {
-      case 1: return 'Monday';
-      case 2: return 'Tuesday';
-      case 3: return 'Wednesday';
-      case 4: return 'Thursday';
-      case 5: return 'Friday';
-      case 6: return 'Saturday';
-      case 7: return 'Sunday';
-      default: return 'Monday';
+      case 1: return 'monday';
+      case 2: return 'tuesday';
+      case 3: return 'wednesday';
+      case 4: return 'thursday';
+      case 5: return 'friday';
+      case 6: return 'saturday';
+      case 7: return 'sunday';
+      default: return 'monday';
     }
   }
 
@@ -383,8 +383,8 @@ class _RestaurantPageState extends State<RestaurantPage> {
         final dayHours = _businessHours[currentDay]!;
         final currentTime = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
         final isCurrentlyOpen = newDayStatus &&
-            currentTime.compareTo(dayHours['opening']) >= 0 &&
-            currentTime.compareTo(dayHours['closing']) <= 0;
+            currentTime.compareTo(dayHours['openTime']) >= 0 &&
+            currentTime.compareTo(dayHours['closeTime']) <= 0;
 
         await _updateRootIsOpen(isCurrentlyOpen);
         setState(() {
@@ -413,7 +413,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
   }
 
   Future<void> _selectTime(BuildContext context, String day, bool isOpening) async {
-    final currentTime = _businessHours[day]?[isOpening ? 'opening' : 'closing'] ?? '09:00';
+    final currentTime = _businessHours[day]?[isOpening ? 'openTime' : 'closeTime'] ?? '09:00';
     final parts = currentTime.split(':');
     final initialTime = TimeOfDay(
       hour: int.parse(parts[0]),
@@ -428,7 +428,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
     if (picked != null) {
       final newTime = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
       setState(() {
-        _businessHours[day]![isOpening ? 'opening' : 'closing'] = newTime;
+        _businessHours[day]![isOpening ? 'openTime' : 'closeTime'] = newTime;
       });
 
       try {
@@ -450,8 +450,8 @@ class _RestaurantPageState extends State<RestaurantPage> {
           final dayHours = _businessHours[currentDay]!;
           final currentTimeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
           final isCurrentlyOpen = dayHours['isOpen'] == true &&
-              currentTimeStr.compareTo(dayHours['opening']) >= 0 &&
-              currentTimeStr.compareTo(dayHours['closing']) <= 0;
+              currentTimeStr.compareTo(dayHours['openTime']) >= 0 &&
+              currentTimeStr.compareTo(dayHours['closeTime']) <= 0;
 
           await _updateRootIsOpen(isCurrentlyOpen);
           setState(() {
@@ -1986,7 +1986,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
                                       child: TextButton.icon(
                                         onPressed: () => _selectTime(context, entry.key, true),
                                         icon: const Icon(Icons.access_time),
-                                        label: Text(entry.value['opening']!),
+                                        label: Text(entry.value['openTime']!),
                                       ),
                                     ),
                                     const Text('to'),
@@ -1994,7 +1994,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
                                       child: TextButton.icon(
                                         onPressed: () => _selectTime(context, entry.key, false),
                                         icon: const Icon(Icons.access_time),
-                                        label: Text(entry.value['closing']!),
+                                        label: Text(entry.value['closeTime']!),
                                       ),
                                     ),
                                   ],

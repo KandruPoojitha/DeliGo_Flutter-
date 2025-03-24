@@ -7,6 +7,7 @@ class Restaurant {
   final Map<String, dynamic>? documents;
   final String status;
   final bool documentsSubmitted;
+  final Map<String, dynamic>? store_hours;
   final Map<String, dynamic>? hours;
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -24,6 +25,7 @@ class Restaurant {
     this.documents,
     required this.status,
     required this.documentsSubmitted,
+    this.store_hours,
     this.hours,
     required this.createdAt,
     this.updatedAt,
@@ -48,6 +50,7 @@ class Restaurant {
     Map<String, dynamic>? documents,
     String? status,
     bool? documentsSubmitted,
+    Map<String, dynamic>? store_hours,
     Map<String, dynamic>? hours,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -65,6 +68,7 @@ class Restaurant {
       documents: documents ?? this.documents,
       status: status ?? this.status,
       documentsSubmitted: documentsSubmitted ?? this.documentsSubmitted,
+      store_hours: store_hours ?? this.store_hours,
       hours: hours ?? this.hours,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -85,6 +89,7 @@ class Restaurant {
       documents: json['documents'],
       status: json['status'] ?? 'pending_review',
       documentsSubmitted: json['documentsSubmitted'] ?? false,
+      store_hours: json['store_hours'],
       hours: json['hours'],
       createdAt: json['createdAt'] != null 
           ? DateTime.fromMillisecondsSinceEpoch(json['createdAt'])
@@ -109,6 +114,7 @@ class Restaurant {
       'documents': documents,
       'status': status,
       'documentsSubmitted': documentsSubmitted,
+      'store_hours': store_hours,
       'hours': hours,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt?.millisecondsSinceEpoch,
@@ -133,8 +139,11 @@ class Restaurant {
       createdAt: map['createdAt'] != null 
           ? DateTime.fromMillisecondsSinceEpoch(map['createdAt'])
           : DateTime.now(),
+      store_hours: map['store_hours'] != null
+          ? Map<String, Map<String, dynamic>>.from(map['store_hours'])
+          : null,
       hours: map['hours'] != null
-          ? Map<String, Map<String, dynamic>>.from(map['hours'])
+          ? Map<String, dynamic>.from(map['hours'])
           : null,
       latitude: map['latitude']?.toDouble(),
       longitude: map['longitude']?.toDouble(),

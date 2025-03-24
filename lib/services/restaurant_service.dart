@@ -32,6 +32,7 @@ class RestaurantService {
           'address': data['address'],
           'documents': data['documents'],
           'documentsSubmitted': data['documentsSubmitted'] ?? false,
+          'store_hours': data['store_hours'],
           'hours': data['hours'],
           'createdAt': data['createdAt'] != null 
               ? DateTime.parse(data['createdAt']).millisecondsSinceEpoch
@@ -71,11 +72,36 @@ class RestaurantService {
     });
   }
 
-  Future<void> updateRestaurantHours(String id, Map<String, dynamic> hours) async {
+  Future<void> updateRestaurantHours(String id, Map<String, dynamic> store_hours) async {
+    // Extract basic hours from store_hours for the current day
+    final now = DateTime.now();
+    final currentDay = _getDayName(now.weekday);
+    final dayHours = store_hours[currentDay] as Map<String, dynamic>?;
+    
+    final hours = {
+      'opening': dayHours?['openTime'] ?? '09:00',
+      'closing': dayHours?['closeTime'] ?? '22:00',
+      'isOpen': dayHours?['isOpen'] ?? true,
+    };
+
     await _database.ref().child('restaurants').child(id).update({
+      'store_hours': store_hours,
       'hours': hours,
       'updatedAt': ServerValue.timestamp,
     });
+  }
+
+  String _getDayName(int weekday) {
+    switch (weekday) {
+      case 1: return 'monday';
+      case 2: return 'tuesday';
+      case 3: return 'wednesday';
+      case 4: return 'thursday';
+      case 5: return 'friday';
+      case 6: return 'saturday';
+      case 7: return 'sunday';
+      default: return 'monday';
+    }
   }
 
   Stream<Restaurant?> getRestaurantStream(String id) {
@@ -91,6 +117,7 @@ class RestaurantService {
           'address': data['address'],
           'documents': data['documents'],
           'documentsSubmitted': data['documentsSubmitted'] ?? false,
+          'store_hours': data['store_hours'],
           'hours': data['hours'],
           'createdAt': data['createdAt'] != null 
               ? DateTime.parse(data['createdAt']).millisecondsSinceEpoch
