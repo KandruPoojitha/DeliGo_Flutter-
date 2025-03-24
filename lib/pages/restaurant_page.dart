@@ -736,11 +736,29 @@ class _RestaurantPageState extends State<RestaurantPage> {
       padding: const EdgeInsets.all(8),
       itemBuilder: (context, index) {
         final order = orders[index].value as Map<dynamic, dynamic>;
-        final items = (order['items'] as List<dynamic>);
-        final subtotal = order['subtotal'] as double? ?? 0.0;
-        final deliveryFee = order['deliveryFee'] as double? ?? 0.0;
-        final tip = order['tip'] as double? ?? 0.0;
-        final orderTotal = order['total'] as double;
+        final items = order['items'] as List<dynamic>;
+        final customizations = items.map((item) {
+          final itemMap = item as Map<dynamic, dynamic>;
+          return itemMap['customizations'];
+        }).toList();
+        
+        // Fix type casting for numeric values
+        final subtotal = (order['subtotal'] is int) 
+            ? (order['subtotal'] as int).toDouble() 
+            : order['subtotal'] as double? ?? 0.0;
+            
+        final deliveryFee = (order['deliveryFee'] is int)
+            ? (order['deliveryFee'] as int).toDouble()
+            : order['deliveryFee'] as double? ?? 0.0;
+            
+        final tip = (order['tip'] is int)
+            ? (order['tip'] as int).toDouble()
+            : order['tip'] as double? ?? 0.0;
+            
+        final orderTotal = (order['total'] is int)
+            ? (order['total'] as int).toDouble()
+            : order['total'] as double? ?? 0.0;
+            
         final orderId = order['id'] as String;
         final userId = order['userId'] as String?;
         final deliveryOption = order['deliveryOption'] as String;
@@ -839,21 +857,6 @@ class _RestaurantPageState extends State<RestaurantPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        deliveryOption,
-                        style: TextStyle(
-                          color: Colors.blue,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
                     if (tip > 0) ...[
                       const SizedBox(width: 8),
                       Container(
@@ -880,7 +883,8 @@ class _RestaurantPageState extends State<RestaurantPage> {
                   itemCount: items.length,
                   itemBuilder: (context, itemIndex) {
                     final item = items[itemIndex] as Map<dynamic, dynamic>;
-                    final customizations = item['customizations'] as Map<dynamic, dynamic>?;
+                    final itemCustomizations = item['customizations'];
+                    final customizationsMap = itemCustomizations is Map<dynamic, dynamic> ? itemCustomizations : null;
 
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -900,12 +904,12 @@ class _RestaurantPageState extends State<RestaurantPage> {
                               ),
                             ],
                           ),
-                          if (customizations != null && customizations.isNotEmpty)
+                          if (customizationsMap != null && customizationsMap.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(left: 16, top: 4),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
-                                children: customizations.values.map<Widget>((customization) {
+                                children: customizationsMap.values.map<Widget>((customization) {
                                   final custom = customization as Map<dynamic, dynamic>;
                                   final price = custom['price'] as num? ?? 0.0;
                                   final optionName = custom['optionName'] as String? ?? '';
@@ -1119,6 +1123,22 @@ class _RestaurantPageState extends State<RestaurantPage> {
                       ),
                     ],
                   ),
+                if (status == 'in_progress' && (order['order_status'] == 'driver_assigned' || order['order_status'] == 'assigned_driver'))
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _updateOrderStatus(orderId, 'delivered'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('MARK AS DELIVER'),
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
@@ -1289,7 +1309,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
           .child(orderId)
           .update({
         'status': 'in_progress',
-        'order_status': 'driver_assigned',
+        'order_status': 'assigned_driver',
         'driverId': driverId,
         'driverName': driverName,
         'assignedAt': ServerValue.timestamp,
