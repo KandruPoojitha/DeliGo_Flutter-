@@ -16,6 +16,7 @@ import 'dart:io';
 import 'dart:math';
 import '../pages/admin/chat_management/admin_chat_page.dart';
 import '../pages/restaurant_chat_page.dart';
+import 'edit_store_info_page.dart';
 
 class RestaurantPage extends StatefulWidget {
   const RestaurantPage({super.key});
@@ -1836,115 +1837,30 @@ class _RestaurantPageState extends State<RestaurantPage> {
             ),
             const SizedBox(height: 16),
 
-            // Store Information Section
-            ExpansionTile(
-              initiallyExpanded: true,
-              title: const Text(
-                'Store Information',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      // Restaurant Name Field
-                      TextFormField(
-                        controller: _nameController,
-                        enabled: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Restaurant Name',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.restaurant),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Email Field
-                      TextFormField(
-                        controller: _emailController,
-                        enabled: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.email),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Phone Field
-                      TextFormField(
-                        controller: _phoneController,
-                        decoration: const InputDecoration(
-                          labelText: 'Phone',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.phone),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter phone number';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Address Field
-                      TextFormField(
-                        controller: _addressController,
-                        enabled: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Address',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.location_on),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // About Field
-                      TextFormField(
-                        controller: _aboutController,
-                        maxLines: 3,
-                        decoration: const InputDecoration(
-                          labelText: 'About',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.info),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Save Button
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _saveStoreSettings,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFF4A261),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                          ),
-                          child: _isLoading
-                              ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                              : const Text(
-                            'Save Changes',
-                            style: TextStyle(fontSize: 16),
-                          ),
-                        ),
-                      ),
-                    ],
+            // Store Information Button
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.store, color: Color(0xFFF4A261)),
+                title: const Text(
+                  'Store Information',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
+                subtitle: const Text('Edit your store details, description, and contact information'),
+                trailing: const Icon(Icons.arrow_forward_ios),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const EditStoreInfoPage(),
+                    ),
+                  );
+                },
+              ),
             ),
+            const SizedBox(height: 16),
 
             // Store Hours Section
             Card(
@@ -2149,12 +2065,14 @@ class _RestaurantPageState extends State<RestaurantPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _restaurant?.fullName ?? 'Restaurant',
+          _restaurant?.fullName ?? 'Restaurant Dashboard',
           style: TextStyle(
             color: Theme.of(context).textTheme.titleLarge?.color,
             fontWeight: FontWeight.bold,
           ),
         ),
+        backgroundColor: const Color(0xFFF4A261),
+        foregroundColor: Colors.white,
         actions: [
           Padding(
             padding: const EdgeInsets.all(8.0),
@@ -2175,6 +2093,18 @@ class _RestaurantPageState extends State<RestaurantPage> {
                 ),
               ],
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.store),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const EditStoreInfoPage(),
+                ),
+              );
+            },
+            tooltip: 'Edit Store Information',
           ),
         ],
       ),
