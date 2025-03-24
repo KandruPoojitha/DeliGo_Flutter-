@@ -4,7 +4,7 @@ import '../admin_chat_page.dart';
 
 class SupportChatList extends StatelessWidget {
   final String userType;
-
+  
   const SupportChatList({super.key, required this.userType});
 
   Future<String?> _getUserType(String userId) async {
@@ -96,38 +96,38 @@ class SupportChatList extends StatelessWidget {
           return Center(child: Text('No ${userType} chats available'));
         }
 
-        Map<dynamic, dynamic> allMessages =
-        snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-
+        Map<dynamic, dynamic> allMessages = 
+            snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+        
         print('All messages: ${allMessages.keys.length} conversations found');
-
+        
         return FutureBuilder<Map<String, Map<String, dynamic>>>(
           future: Future.wait(
             allMessages.entries.map((entry) async {
               final userId = entry.key;
               final messages = entry.value as Map<dynamic, dynamic>;
-
+              
               print('Processing userId: $userId');
-
+              
               // Get the actual user type from Firebase collections
               String? actualUserType = await _getUserType(userId);
               print('User $userId type: $actualUserType');
-
+              
               // Only include if user type matches the requested tab
               if (actualUserType == userType) {
                 var userMessages = messages as Map<dynamic, dynamic>;
-
+                
                 // Get the actual username from the respective collection
                 String userName = await _getUsername(userId, actualUserType ?? 'customer');
                 print('Got username for $userId: $userName');
-
+                
                 // Get the latest message
-                var latestMessage = userMessages.entries.reduce((a, b) =>
-                (a.value['timestamp'] as num) > (b.value['timestamp'] as num) ? a : b);
-
+                var latestMessage = userMessages.entries.reduce((a, b) => 
+                  (a.value['timestamp'] as num) > (b.value['timestamp'] as num) ? a : b);
+                
                 // Check for unread messages
-                bool hasUnread = userMessages.values.any((message) =>
-                !(message['isRead'] as bool? ?? false)
+                bool hasUnread = userMessages.values.any((message) => 
+                  !(message['isRead'] as bool? ?? false)
                 );
 
                 return MapEntry<String, Map<String, dynamic>>(
@@ -187,7 +187,7 @@ class SupportChatList extends StatelessWidget {
                 final chat = sortedChats[index];
                 final userId = chat.key;
                 final chatData = chat.value;
-
+                
                 return Card(
                   elevation: 2,
                   margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -254,12 +254,12 @@ class SupportChatList extends StatelessWidget {
       },
     );
   }
-
+  
   String _formatTimestamp(num timestamp) {
     final now = DateTime.now();
     final date = DateTime.fromMillisecondsSinceEpoch(timestamp.toInt());
     final difference = now.difference(date);
-
+    
     if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {

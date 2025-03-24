@@ -104,11 +104,11 @@ class _AdminChatPageState extends State<AdminChatPage> {
                   return const Center(child: Text('No messages yet'));
                 }
 
-                Map<dynamic, dynamic> messages =
-                snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                Map<dynamic, dynamic> messages = 
+                    snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
 
                 List<MapEntry<dynamic, dynamic>> chatMessages = messages.entries.toList();
-                chatMessages.sort((a, b) =>
+                chatMessages.sort((a, b) => 
                     (a.value['timestamp'] as num).compareTo(b.value['timestamp'] as num));
 
                 return ListView.builder(
