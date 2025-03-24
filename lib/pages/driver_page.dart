@@ -7,6 +7,7 @@ import '../services/driver_service.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../pages/chat/user_chat_page.dart';
 import '../pages/login_page.dart';
+import '../pages/edit_driver_profile_page.dart';
 
 class DriverPage extends StatefulWidget {
   const DriverPage({super.key});
@@ -1411,189 +1412,129 @@ class _DriverPageState extends State<DriverPage> {
   
   Widget _buildAccountTab() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Card(
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Driver Profile',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const CircleAvatar(
-                      backgroundColor: Color(0xFFF4A261),
-                      child: Icon(Icons.person, color: Colors.white),
-                    ),
-                    title: Text(_user?.displayName ?? 'Driver'),
-                    subtitle: Text(_user?.email ?? ''),
-                  ),
-                  const Divider(),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.access_time),
-                    title: const Text('Working Hours'),
-                    subtitle: Text('${_formatTimeOfDay(_startTime)} - ${_formatTimeOfDay(_endTime)}'),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.edit),
-                      onPressed: () {
-                        // Show dialog to edit working hours
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: const Text('Edit Working Hours'),
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ListTile(
-                                  title: const Text('Start Time'),
-                                  subtitle: Text(_formatTimeOfDay(_startTime)),
-                                  onTap: () async {
-                                    Navigator.pop(context);
-                                    await _selectTime(context, true);
-                                  },
-                                ),
-                                ListTile(
-                                  title: const Text('End Time'),
-                                  subtitle: Text(_formatTimeOfDay(_endTime)),
-                                  onTap: () async {
-                                    Navigator.pop(context);
-                                    await _selectTime(context, false);
-                                  },
-                                ),
-                              ],
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('Close'),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  Navigator.pop(context);
-                                  _updateWorkingHours();
-                                },
-                                child: const Text('Save'),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
+          _buildProfileSection(),
           const SizedBox(height: 16),
           
-          // Support Chat Card
+          // Working Hours Section
           Card(
-            elevation: 4,
+            margin: const EdgeInsets.symmetric(horizontal: 16),
             child: Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Support',
+                    'Working Hours',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 20,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 16),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.support_agent, color: Color(0xFFF4A261)),
-                    title: const Text('Contact Support'),
-                    subtitle: const Text('Get help from our support team'),
-                    onTap: () {
-                      // Navigate to support chat
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => UserChatPage(
-                            userId: _user!.uid,
-                            userName: _user?.displayName ?? 'PizzaDrivr',
-                            userType: 'driver',
-                            conversationId: _user!.uid,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          Card(
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Account Settings',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ListTile(
-                    leading: const Icon(Icons.logout, color: Colors.red),
-                    title: const Text('Logout', style: TextStyle(color: Colors.red)),
-                    onTap: () async {
-                      // Confirm logout
-                      showDialog(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('Logout'),
-                          content: const Text('Are you sure you want to logout?'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text('Cancel'),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Start Time',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                            TextButton(
-                              onPressed: () async {
-                                Navigator.pop(context);
-                                await FirebaseAuth.instance.signOut();
-                                // Navigate to login page
-                                if (mounted) {
-                                  Navigator.of(context).pushAndRemoveUntil(
-                                    MaterialPageRoute(
-                                      builder: (context) => const LoginPage(),
-                                    ),
-                                    (route) => false,
-                                  );
-                                }
-                              },
-                              child: const Text('Logout'),
+                            TextButton.icon(
+                              onPressed: () => _selectTime(context, true),
+                              icon: const Icon(Icons.access_time),
+                              label: Text(_startTime.format(context)),
                             ),
                           ],
                         ),
-                      );
-                    },
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'End Time',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: () => _selectTime(context, false),
+                              icon: const Icon(Icons.access_time),
+                              label: Text(_endTime.format(context)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Support Section
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            child: ListTile(
+              leading: const Icon(Icons.support_agent, color: Color(0xFFF4A261)),
+              title: const Text('Support'),
+              trailing: const Icon(Icons.arrow_forward_ios),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => UserChatPage(
+                      userId: _user!.uid,
+                      userName: 'Driver',
+                      userType: 'driver',
+                      conversationId: _user!.uid,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Sign Out Button
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () async {
+                  try {
+                    await FirebaseAuth.instance.signOut();
+                    if (mounted) {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (context) => const LoginPage()),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error signing out: $e')),
+                      );
+                    }
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: const Text('Sign Out'),
               ),
             ),
           ),
@@ -1602,39 +1543,102 @@ class _DriverPageState extends State<DriverPage> {
     );
   }
   
-  Future<void> _updateWorkingHours() async {
-    if (_user != null) {
-      try {
-        setState(() => _isLoading = true);
-        
-        await FirebaseDatabase.instance
-            .ref()
-            .child('drivers')
-            .child(_user!.uid)
-            .update({
-          'hours': {
-            'start': _formatTimeOfDay(_startTime),
-            'end': _formatTimeOfDay(_endTime),
-          },
-          'updatedAt': DateTime.now().toIso8601String(),
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Working hours updated'),
-            backgroundColor: Colors.green,
+  Widget _buildProfileSection() {
+    return StreamBuilder<DatabaseEvent>(
+      stream: FirebaseDatabase.instance
+          .ref()
+          .child('drivers')
+          .child(_user!.uid)
+          .onValue,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Center(child: Text('Error loading profile'));
+        }
+
+        if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final driverData = Map<String, dynamic>.from(
+            snapshot.data!.snapshot.value as Map);
+        final fullName = driverData['fullName'] as String? ?? 'Driver';
+        final email = driverData['email'] as String? ?? '';
+        final phone = driverData['phone'] as String? ?? '';
+
+        return Card(
+          margin: const EdgeInsets.all(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Profile Information',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.edit),
+                      onPressed: () async {
+                        final result = await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => EditDriverProfilePage(
+                              driverId: _user!.uid,
+                              currentName: fullName,
+                              currentPhone: phone,
+                            ),
+                          ),
+                        );
+                        
+                        if (result == true) {
+                          setState(() {}); // Refresh the page
+                        }
+                      },
+                      color: const Color(0xFFF4A261),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _buildInfoRow('Name', fullName),
+                const SizedBox(height: 8),
+                _buildInfoRow('Email', email),
+                const SizedBox(height: 8),
+                _buildInfoRow('Phone', phone),
+              ],
+            ),
           ),
         );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error updating working hours: $e'),
-            backgroundColor: Colors.red,
+      },
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
+            ),
           ),
-        );
-      } finally {
-        setState(() => _isLoading = false);
-      }
-    }
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 16),
+          ),
+        ),
+      ],
+    );
   }
 } 

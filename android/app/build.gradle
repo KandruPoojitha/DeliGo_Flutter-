@@ -33,7 +33,7 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = '1.8'
     }
 
     sourceSets {
@@ -59,6 +59,15 @@ android {
             signingConfig signingConfigs.debug
         }
     }
+
+    packagingOptions {
+        pickFirst 'META-INF/DEPENDENCIES'
+        pickFirst 'META-INF/LICENSE'
+        pickFirst 'META-INF/LICENSE.txt'
+        pickFirst 'META-INF/NOTICE'
+        pickFirst 'META-INF/NOTICE.txt'
+        pickFirst 'META-INF/*.kotlin_module'
+    }
 }
 
 flutter {
@@ -72,6 +81,11 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation 'androidx.multidex:multidex:2.0.1'
     implementation 'com.google.android.material:material:1.5.0'
+    
+    // Update Stripe dependencies
+    implementation 'com.stripe:stripe-android:20.35.2'  // Use a stable version
+    implementation 'com.stripe:stripe-core:20.35.2'
+    implementation 'com.stripe:financial-connections:20.35.2'
 }
 
 // Add this at the bottom of the file

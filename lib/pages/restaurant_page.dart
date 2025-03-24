@@ -8,11 +8,14 @@ import 'dart:convert';
 import '../services/restaurant_service.dart';
 import '../models/restaurant.dart';
 import '../providers/theme_provider.dart';
+import 'admin/chat_management/admin_chat_page.dart';
 import 'login_page.dart';
 import 'add_menu_item_page.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'dart:math';
+import '../pages/admin/chat_management/admin_chat_page.dart';
+import '../pages/restaurant_chat_page.dart';
 
 class RestaurantPage extends StatefulWidget {
   const RestaurantPage({super.key});
@@ -2004,6 +2007,44 @@ class _RestaurantPageState extends State<RestaurantPage> {
                     ),
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Support Section
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.support_agent, color: Color(0xFFF4A261)),
+                title: const Text(
+                  'Support',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios),
+                onTap: () async {
+                  // Fetch restaurant name from store_info
+                  final storeInfoSnapshot = await FirebaseDatabase.instance
+                      .ref()
+                      .child('restaurants')
+                      .child(_user!.uid)
+                      .child('store_info')
+                      .child('name')
+                      .get();
+                      
+                  if (mounted) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => RestaurantChatPage(
+                          restaurantId: _user!.uid,
+                          restaurantName: storeInfoSnapshot.value?.toString() ?? 'Restaurant',
+                        ),
+                      ),
+                    );
+                  }
+                },
               ),
             ),
             const SizedBox(height: 32),
