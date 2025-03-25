@@ -333,21 +333,21 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                           value: 'view',
                                           child: Text('View Details'),
                                         ),
-                                        if (_selectedCategory == 'Restaurant')
+                                        if (_selectedCategory == 'Restaurant' || _selectedCategory == 'Driver')
                                           PopupMenuItem(
                                             value: user['documents']?['status'] == 'approved' ? 'reject' : 'approve',
                                             child: Text(user['documents']?['status'] == 'approved' ? 'Reject' : 'Approve'),
+                                          ),
+                                        PopupMenuItem(
+                                          value: isBlocked ? 'unblock' : 'block',
+                                          child: Text(isBlocked ? 'Unblock User' : 'Block User'),
+                                        ),
+                                      ],
                                     ),
-                                    PopupMenuItem(
-                                      value: isBlocked ? 'unblock' : 'block',
-                                      child: Text(isBlocked ? 'Unblock User' : 'Block User'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+                                  ),
+                                );
+                              },
+                            ),
             ),
           ],
         ),
@@ -701,42 +701,42 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   ),
                   const SizedBox(height: 8),
                   if (user['documents']['license'] != null) ...[
-                            const Text('Driver License:'),
-                            const SizedBox(height: 4),
+                    const Text('Driver License:'),
+                    const SizedBox(height: 4),
                     if (user['documents']['license']['url'] != null)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: CachedNetworkImage(
-                                  imageUrl: user['documents']['license']['url'],
-                                  height: 150,
-                                  width: double.infinity,
-                                  fit: BoxFit.cover,
-                                  placeholder: (context, url) => const Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                  errorWidget: (context, url, error) => const Icon(Icons.error),
-                                ),
-                              ),
-                          ],
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: CachedNetworkImage(
+                          imageUrl: user['documents']['license']['url'],
+                          height: 150,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                          errorWidget: (context, url, error) => const Icon(Icons.error),
+                        ),
+                      ),
+                  ],
                   const SizedBox(height: 16),
                   if (user['documents']['govt_id'] != null) ...[
-                            const Text('Government ID:'),
-                            const SizedBox(height: 4),
+                    const Text('Government ID:'),
+                    const SizedBox(height: 4),
                     if (user['documents']['govt_id']['url'] != null)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: CachedNetworkImage(
-                                  imageUrl: user['documents']['govt_id']['url'],
-                                  height: 150,
-                                  width: double.infinity,
-                                  fit: BoxFit.cover,
-                                  placeholder: (context, url) => const Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                  errorWidget: (context, url, error) => const Icon(Icons.error),
-                                ),
-                              ),
-                          ],
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: CachedNetworkImage(
+                          imageUrl: user['documents']['govt_id']['url'],
+                          height: 150,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                          errorWidget: (context, url, error) => const Icon(Icons.error),
+                        ),
+                      ),
+                  ],
                   const SizedBox(height: 16),
                   if (user['documents']?['status'] != 'approved') ...[
                     Row(

@@ -8,11 +8,15 @@ import 'dart:convert';
 import '../services/restaurant_service.dart';
 import '../models/restaurant.dart';
 import '../providers/theme_provider.dart';
+import 'admin/chat_management/admin_chat_page.dart';
 import 'login_page.dart';
 import 'add_menu_item_page.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'dart:math';
+import '../pages/admin/chat_management/admin_chat_page.dart';
+import '../pages/restaurant_chat_page.dart';
+import 'edit_store_info_page.dart';
 
 class RestaurantPage extends StatefulWidget {
   const RestaurantPage({super.key});
@@ -40,13 +44,13 @@ class _RestaurantPageState extends State<RestaurantPage> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
   Map<String, Map<String, dynamic>> _businessHours = {
-    'Monday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
-    'Tuesday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
-    'Wednesday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
-    'Thursday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
-    'Friday': {'opening': '09:00', 'closing': '23:00', 'isOpen': true},
-    'Saturday': {'opening': '09:00', 'closing': '23:00', 'isOpen': true},
-    'Sunday': {'opening': '09:00', 'closing': '22:00', 'isOpen': true},
+    'monday': {'openTime': '09:00', 'closeTime': '22:00', 'isOpen': true},
+    'tuesday': {'openTime': '09:00', 'closeTime': '22:00', 'isOpen': true},
+    'wednesday': {'openTime': '09:00', 'closeTime': '22:00', 'isOpen': true},
+    'thursday': {'openTime': '09:00', 'closeTime': '22:00', 'isOpen': true},
+    'friday': {'openTime': '09:00', 'closeTime': '23:00', 'isOpen': true},
+    'saturday': {'openTime': '09:00', 'closeTime': '23:00', 'isOpen': true},
+    'sunday': {'openTime': '09:00', 'closeTime': '22:00', 'isOpen': true},
   };
   List<Map<String, dynamic>> _predictions = [];
   bool _isLoadingAddresses = false;
@@ -84,37 +88,30 @@ class _RestaurantPageState extends State<RestaurantPage> {
       print('User email: ${_user!.email}');
 
       try {
-        final restaurant = await _restaurantService.getRestaurant(_user!.uid);
-        print('Restaurant data loaded: ${restaurant?.toMap()}');
+        // Get the restaurant data directly from Firebase to ensure we have the latest isOpen status
+        final snapshot = await FirebaseDatabase.instance
+            .ref()
+            .child('restaurants')
+            .child(_user!.uid)
+            .get();
 
-        if (restaurant != null) {
-          print('Setting restaurant data in state:');
-          print('Full Name: ${restaurant.fullName}');
-          print('Email: ${restaurant.email}');
-
+        if (snapshot.exists) {
+          final restaurantData = snapshot.value as Map<dynamic, dynamic>;
+          
           if (mounted) {
             setState(() {
-              _restaurant = restaurant;
-              _updateOpenStatus(restaurant);
-              _nameController.text = restaurant.fullName;
-              _emailController.text = restaurant.email;
-              _phoneController.text = restaurant.phone;
-              _addressController.text = restaurant.address ?? '';
-              if (restaurant.hours != null) {
-                _businessHours = Map<String, Map<String, dynamic>>.from(restaurant.hours!);
+              _isOpen = restaurantData['isOpen'] ?? false;
+              _nameController.text = restaurantData['fullName'] ?? '';
+              _emailController.text = restaurantData['email'] ?? '';
+              _phoneController.text = restaurantData['phone'] ?? '';
+              _addressController.text = restaurantData['address'] ?? '';
+              if (restaurantData['store_hours'] != null) {
+                _businessHours = Map<String, Map<String, dynamic>>.from(restaurantData['store_hours']);
               }
             });
-            print('State updated with restaurant data');
           }
         } else {
           print('No restaurant data found for user: ${_user!.uid}');
-          // Try to fetch the data directly from Firebase to debug
-          final snapshot = await FirebaseDatabase.instance
-              .ref()
-              .child('restaurants')
-              .child(_user!.uid)
-              .get();
-          print('Direct Firebase data: ${snapshot.value}');
         }
       } catch (e) {
         print('Error loading restaurant data: $e');
@@ -133,8 +130,8 @@ class _RestaurantPageState extends State<RestaurantPage> {
 
       final dayHours = _businessHours[currentDay];
       if (dayHours != null) {
-        final openingTime = dayHours['opening'] as String;
-        final closingTime = dayHours['closing'] as String;
+        final openingTime = dayHours['openTime'] as String;
+        final closingTime = dayHours['closeTime'] as String;
         final isDayOpen = dayHours['isOpen'] as bool;
 
         final isCurrentlyOpen = isDayOpen &&
@@ -166,68 +163,52 @@ class _RestaurantPageState extends State<RestaurantPage> {
   }
 
   Future<void> _toggleOpenStatus() async {
-    if (_restaurant != null) {
-      final newStatus = !_isOpen;
-      try {
-        final now = DateTime.now();
-        final currentDay = _getDayName(now.weekday);
+    final newStatus = !_isOpen;
+    try {
+      // Update root level isOpen
+      await FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(_user!.uid)
+          .update({
+        'isOpen': newStatus,
+        'updatedAt': ServerValue.timestamp,
+      });
 
-        // Update both store_hours and root level isOpen
-        await Future.wait([
-          FirebaseDatabase.instance
-              .ref()
-              .child('restaurants')
-              .child(_user!.uid)
-              .child('store_hours')
-              .child(currentDay)
-              .update({
-            'isOpen': newStatus,
-          }),
-          FirebaseDatabase.instance
-              .ref()
-              .child('restaurants')
-              .child(_user!.uid)
-              .update({
-            'isOpen': newStatus,
-          })
-        ]);
+      setState(() {
+        _isOpen = newStatus;
+      });
 
-        setState(() {
-          _isOpen = newStatus;
-          _businessHours[currentDay]!['isOpen'] = newStatus;
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Restaurant is now ${newStatus ? 'open' : 'closed'}'),
-              backgroundColor: newStatus ? Colors.green : Colors.red,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Error updating restaurant status'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Restaurant is now ${newStatus ? 'open' : 'closed'}'),
+            backgroundColor: newStatus ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error updating restaurant status'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
 
   String _getDayName(int weekday) {
     switch (weekday) {
-      case 1: return 'Monday';
-      case 2: return 'Tuesday';
-      case 3: return 'Wednesday';
-      case 4: return 'Thursday';
-      case 5: return 'Friday';
-      case 6: return 'Saturday';
-      case 7: return 'Sunday';
-      default: return 'Monday';
+      case 1: return 'monday';
+      case 2: return 'tuesday';
+      case 3: return 'wednesday';
+      case 4: return 'thursday';
+      case 5: return 'friday';
+      case 6: return 'saturday';
+      case 7: return 'sunday';
+      default: return 'monday';
     }
   }
 
@@ -380,8 +361,8 @@ class _RestaurantPageState extends State<RestaurantPage> {
         final dayHours = _businessHours[currentDay]!;
         final currentTime = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
         final isCurrentlyOpen = newDayStatus &&
-            currentTime.compareTo(dayHours['opening']) >= 0 &&
-            currentTime.compareTo(dayHours['closing']) <= 0;
+            currentTime.compareTo(dayHours['openTime']) >= 0 &&
+            currentTime.compareTo(dayHours['closeTime']) <= 0;
 
         await _updateRootIsOpen(isCurrentlyOpen);
         setState(() {
@@ -410,7 +391,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
   }
 
   Future<void> _selectTime(BuildContext context, String day, bool isOpening) async {
-    final currentTime = _businessHours[day]?[isOpening ? 'opening' : 'closing'] ?? '09:00';
+    final currentTime = _businessHours[day]?[isOpening ? 'openTime' : 'closeTime'] ?? '09:00';
     final parts = currentTime.split(':');
     final initialTime = TimeOfDay(
       hour: int.parse(parts[0]),
@@ -425,7 +406,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
     if (picked != null) {
       final newTime = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
       setState(() {
-        _businessHours[day]![isOpening ? 'opening' : 'closing'] = newTime;
+        _businessHours[day]![isOpening ? 'openTime' : 'closeTime'] = newTime;
       });
 
       try {
@@ -447,8 +428,8 @@ class _RestaurantPageState extends State<RestaurantPage> {
           final dayHours = _businessHours[currentDay]!;
           final currentTimeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
           final isCurrentlyOpen = dayHours['isOpen'] == true &&
-              currentTimeStr.compareTo(dayHours['opening']) >= 0 &&
-              currentTimeStr.compareTo(dayHours['closing']) <= 0;
+              currentTimeStr.compareTo(dayHours['openTime']) >= 0 &&
+              currentTimeStr.compareTo(dayHours['closeTime']) <= 0;
 
           await _updateRootIsOpen(isCurrentlyOpen);
           setState(() {
@@ -1833,115 +1814,30 @@ class _RestaurantPageState extends State<RestaurantPage> {
             ),
             const SizedBox(height: 16),
 
-            // Store Information Section
-            ExpansionTile(
-              initiallyExpanded: true,
-              title: const Text(
-                'Store Information',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      // Restaurant Name Field
-                      TextFormField(
-                        controller: _nameController,
-                        enabled: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Restaurant Name',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.restaurant),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Email Field
-                      TextFormField(
-                        controller: _emailController,
-                        enabled: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.email),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Phone Field
-                      TextFormField(
-                        controller: _phoneController,
-                        decoration: const InputDecoration(
-                          labelText: 'Phone',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.phone),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter phone number';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Address Field
-                      TextFormField(
-                        controller: _addressController,
-                        enabled: false,
-                        decoration: const InputDecoration(
-                          labelText: 'Address',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.location_on),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // About Field
-                      TextFormField(
-                        controller: _aboutController,
-                        maxLines: 3,
-                        decoration: const InputDecoration(
-                          labelText: 'About',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.info),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Save Button
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _saveStoreSettings,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFF4A261),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                          ),
-                          child: _isLoading
-                              ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                              : const Text(
-                            'Save Changes',
-                            style: TextStyle(fontSize: 16),
-                          ),
-                        ),
-                      ),
-                    ],
+            // Store Information Button
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.store, color: Color(0xFFF4A261)),
+                title: const Text(
+                  'Store Information',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
+                subtitle: const Text('Edit your store details, description, and contact information'),
+                trailing: const Icon(Icons.arrow_forward_ios),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const EditStoreInfoPage(),
+                    ),
+                  );
+                },
+              ),
             ),
+            const SizedBox(height: 16),
 
             // Store Hours Section
             Card(
@@ -1983,7 +1879,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
                                       child: TextButton.icon(
                                         onPressed: () => _selectTime(context, entry.key, true),
                                         icon: const Icon(Icons.access_time),
-                                        label: Text(entry.value['opening']!),
+                                        label: Text(entry.value['openTime']!),
                                       ),
                                     ),
                                     const Text('to'),
@@ -1991,7 +1887,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
                                       child: TextButton.icon(
                                         onPressed: () => _selectTime(context, entry.key, false),
                                         icon: const Icon(Icons.access_time),
-                                        label: Text(entry.value['closing']!),
+                                        label: Text(entry.value['closeTime']!),
                                       ),
                                     ),
                                   ],
@@ -2004,6 +1900,44 @@ class _RestaurantPageState extends State<RestaurantPage> {
                     ),
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Support Section
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.support_agent, color: Color(0xFFF4A261)),
+                title: const Text(
+                  'Support',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios),
+                onTap: () async {
+                  // Fetch restaurant name from store_info
+                  final storeInfoSnapshot = await FirebaseDatabase.instance
+                      .ref()
+                      .child('restaurants')
+                      .child(_user!.uid)
+                      .child('store_info')
+                      .child('name')
+                      .get();
+                      
+                  if (mounted) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => RestaurantChatPage(
+                          restaurantId: _user!.uid,
+                          restaurantName: storeInfoSnapshot.value?.toString() ?? 'Restaurant',
+                        ),
+                      ),
+                    );
+                  }
+                },
               ),
             ),
             const SizedBox(height: 32),
@@ -2108,12 +2042,14 @@ class _RestaurantPageState extends State<RestaurantPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _restaurant?.fullName ?? 'Restaurant',
+          _restaurant?.fullName ?? 'Restaurant Dashboard',
           style: TextStyle(
             color: Theme.of(context).textTheme.titleLarge?.color,
             fontWeight: FontWeight.bold,
           ),
         ),
+        backgroundColor: const Color(0xFFF4A261),
+        foregroundColor: Colors.white,
         actions: [
           Padding(
             padding: const EdgeInsets.all(8.0),
@@ -2134,6 +2070,18 @@ class _RestaurantPageState extends State<RestaurantPage> {
                 ),
               ],
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.store),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const EditStoreInfoPage(),
+                ),
+              );
+            },
+            tooltip: 'Edit Store Information',
           ),
         ],
       ),
