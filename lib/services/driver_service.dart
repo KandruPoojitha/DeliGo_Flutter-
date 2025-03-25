@@ -47,10 +47,13 @@ class DriverService {
   Future<void> updateDriverApproval(String uid, bool isApproved) async {
     final now = DateTime.now().toIso8601String();
     
-    // Update both the documents status and the root status
-    await _database.ref().child('drivers').child(uid).update({
+    // Update only the status in documents without affecting other fields
+    await _database.ref().child('drivers').child(uid).child('documents').update({
       'status': isApproved ? 'approved' : 'rejected',
-      'documents.status': isApproved ? 'approved' : 'rejected',
+    });
+    
+    // Update the timestamp at root level
+    await _database.ref().child('drivers').child(uid).update({
       'updatedAt': now,
     });
     
