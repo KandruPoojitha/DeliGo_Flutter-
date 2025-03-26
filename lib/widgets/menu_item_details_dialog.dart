@@ -66,16 +66,12 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
             }
             
             if (selectedItems.isNotEmpty) {
-              double optionTotalPrice = 0.0;
-              for (var item in selectedItems) {
-                optionTotalPrice += (item['price'] ?? 0.0);
-              }
-              
               formattedCustomizations[optionId] = {
-                'optionId': optionId,
-                'optionName': option['optionName'] ?? 'Unknown Option',
-                'price': optionTotalPrice,
-                'selectedItems': selectedItems,
+                "0": {
+                  'optionId': optionId,
+                  'optionName': option['optionName'] ?? 'Unknown Option',
+                  'selectedItems': selectedItems,
+                }
               };
             }
           }

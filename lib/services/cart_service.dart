@@ -28,17 +28,27 @@ class CartService {
       if (menuItem['customizations'] != null) {
         final customizations = menuItem['customizations'] as Map;
         
+        // Calculate price first
         customizations.forEach((key, value) {
-          if (value is Map) {
-            // Add prices from selected items
-            final selectedItems = value['selectedItems'] as List?;
-            if (selectedItems != null) {
-              for (var selectedItem in selectedItems) {
-                if (selectedItem is Map && selectedItem['price'] != null) {
-                  customizationPrice += (selectedItem['price'] as num).toDouble();
+          try {
+            if (value is Map) {
+              List? selectedItems;
+              if (value['0'] != null && value['0'] is Map) {
+                selectedItems = value['0']['selectedItems'] as List?;
+              } else {
+                selectedItems = value['selectedItems'] as List?;
+              }
+              
+              if (selectedItems != null) {
+                for (var selectedItem in selectedItems) {
+                  if (selectedItem is Map && selectedItem['price'] != null) {
+                    customizationPrice += (selectedItem['price'] as num).toDouble();
+                  }
                 }
               }
             }
+          } catch (e) {
+            print('Error calculating price for customization $key: $e');
           }
         });
       }
@@ -62,21 +72,40 @@ class CartService {
       
       // Only add customizations if they exist in the expected format
       if (menuItem['customizations'] != null) {
-        // Clean up customizations to remove option-level prices
         final cleanCustomizations = <String, dynamic>{};
         final customizations = menuItem['customizations'] as Map;
         
         customizations.forEach((key, value) {
-          if (value is Map) {
-            cleanCustomizations[key] = {
-              'optionId': value['optionId'],
-              'optionName': value['optionName'],
-              'selectedItems': value['selectedItems'],
-            };
+          try {
+            if (value is Map) {
+              final nestedValue = value['0'];
+              if (nestedValue != null && nestedValue is Map) {
+                cleanCustomizations[key] = {
+                  "0": {
+                    'optionId': nestedValue['optionId'] ?? key,
+                    'optionName': nestedValue['optionName'] ?? 'Unknown Option',
+                    'selectedItems': nestedValue['selectedItems'] ?? [],
+                  }
+                };
+              } else {
+                // Handle case where value doesn't have nested "0" structure
+                cleanCustomizations[key] = {
+                  "0": {
+                    'optionId': value['optionId'] ?? key,
+                    'optionName': value['optionName'] ?? 'Unknown Option',
+                    'selectedItems': value['selectedItems'] ?? [],
+                  }
+                };
+              }
+            }
+          } catch (e) {
+            print('Error processing customization $key: $e');
           }
         });
         
-        cartItem['customizations'] = cleanCustomizations;
+        if (cleanCustomizations.isNotEmpty) {
+          cartItem['customizations'] = cleanCustomizations;
+        }
       }
 
       // Add to cart
@@ -127,9 +156,9 @@ class CartService {
         final customizations = item['customizations'] as Map;
         
         customizations.forEach((key, value) {
-          if (value is Map) {
-            // Add prices from selected items
-            final selectedItems = value['selectedItems'] as List?;
+          if (value is Map && value['0'] != null) {
+            // Add prices from selected items in the nested structure
+            final selectedItems = value['0']['selectedItems'] as List?;
             if (selectedItems != null) {
               for (var selectedItem in selectedItems) {
                 if (selectedItem is Map && selectedItem['price'] != null) {

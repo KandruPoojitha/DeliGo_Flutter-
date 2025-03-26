@@ -201,16 +201,28 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                     ),
                                     const SizedBox(height: 4),
                                     ...(item['customizations'] as Map).entries.map((customization) {
-                                      final optionName = customization.value['optionName'] as String?;
-                                      final selectedItems = customization.value['selectedItems'] as List?;
-                                      
+                                      final customizationList = customization.value as List?;
+                                      if (customizationList == null || customizationList.isEmpty) {
+                                        return const SizedBox.shrink();
+                                      }
+
+                                      // Get the first item in the list which contains our customization data
+                                      final customizationData = customizationList.first as Map?;
+                                      if (customizationData == null) {
+                                        return const SizedBox.shrink();
+                                      }
+
+                                      final optionName = customizationData['optionName']?.toString();
+                                      final selectedItems = customizationData['selectedItems'] as List?;
+
                                       if (optionName != null && selectedItems != null) {
                                         return Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: selectedItems.map((selectedItem) {
+                                          children: selectedItems.map<Widget>((selectedItem) {
                                             if (selectedItem is Map) {
-                                              final itemName = selectedItem['name'] as String?;
-                                              final itemPrice = selectedItem['price'] as num?;
+                                              final itemName = selectedItem['name']?.toString();
+                                              final itemPrice = selectedItem['price'] is num ? 
+                                                  (selectedItem['price'] as num).toDouble() : 0.0;
                                               
                                               if (itemName != null) {
                                                 return Padding(
@@ -227,7 +239,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                                           ),
                                                         ),
                                                       ),
-                                                      if (itemPrice != null && itemPrice > 0)
+                                                      if (itemPrice > 0)
                                                         Text(
                                                           '+\$${itemPrice.toStringAsFixed(2)}',
                                                           style: const TextStyle(
@@ -613,32 +625,67 @@ class _CheckoutPageState extends State<CheckoutPage> {
       final restaurantId = firstItem['restaurantId'];
 
       // Process items to match the required structure
-      final processedItems = widget.cartItems.entries.map((entry) {
-        final item = Map<String, dynamic>.from(entry.value as Map);
-        
-        // Process customizations if they exist
-        final customizations = item['customizations'];
-        Map<String, dynamic> processedCustomizations = {};
-        
-        if (customizations != null && customizations is Map) {
-          // Keep the customizations as is since they're already in the correct format
-          processedCustomizations = Map<String, dynamic>.from(customizations);
+      debugPrint('🔍 DEBUG: Starting to process cart items');
+      final List<Map<String, dynamic>> processedItems = [];
+
+      try {
+        for (var entry in widget.cartItems.entries) {
+          debugPrint('🔍 DEBUG: Processing item: ${entry.key}');
+          final item = Map<String, dynamic>.from(entry.value as Map);
+          
+          // Process customizations
+          Map<String, dynamic> processedCustomizations = {};
+          final customizations = item['customizations'];
+          
+          if (customizations != null) {
+            debugPrint('🔍 DEBUG: Raw customizations: $customizations');
+            
+            if (customizations is Map) {
+              customizations.forEach((key, value) {
+                debugPrint('🔍 DEBUG: Processing customization key: $key, value type: ${value.runtimeType}');
+                
+                try {
+                  if (value is List && value.isNotEmpty) {
+                    final customizationData = value.first as Map?;
+                    if (customizationData != null) {
+                      final selectedItems = customizationData['selectedItems'];
+                      debugPrint('🔍 DEBUG: Selected items type: ${selectedItems?.runtimeType}');
+                      
+                      processedCustomizations[key] = value;
+                    }
+                  }
+                } catch (e) {
+                  debugPrint('❌ ERROR processing customization: $e');
+                }
+              });
+            }
+          }
+
+          final processedItem = {
+            'customizations': processedCustomizations,
+            'description': item['description']?.toString() ?? '',
+            'id': const Uuid().v4().toUpperCase(),
+            'imageURL': item['imageURL']?.toString() ?? '',
+            'menuItemId': item['menuItemId']?.toString() ?? '',
+            'name': item['name']?.toString() ?? 'Unnamed Item',
+            'price': (item['price'] as num?)?.toDouble() ?? 0.0,
+            'quantity': (item['quantity'] as num?)?.toInt() ?? 1,
+            'specialInstructions': item['specialInstructions']?.toString() ?? '',
+            'totalPrice': (item['totalPrice'] as num?)?.toDouble() ?? 0.0,
+          };
+          
+          debugPrint('🔍 DEBUG: Processed item structure: $processedItem');
+          processedItems.add(processedItem);
         }
+      } catch (e, stackTrace) {
+        debugPrint('❌ ERROR processing items: $e');
+        debugPrint('❌ Stack trace: $stackTrace');
+        throw Exception('Failed to process order items: $e');
+      }
 
-        return {
-          'customizations': processedCustomizations,
-          'description': item['description'] ?? '',
-          'id': const Uuid().v4().toUpperCase(),
-          'imageURL': item['imageURL'] ?? '',
-          'menuItemId': item['menuItemId'] ?? '',
-          'name': item['name'] ?? 'Unnamed Item',
-          'price': item['price'] ?? 0.0,
-          'quantity': item['quantity'] ?? 1,
-          'specialInstructions': item['specialInstructions'] ?? '',
-          'totalPrice': item['totalPrice'] ?? 0.0,
-        };
-      }).toList();
+      debugPrint('🔍 DEBUG: Final processed items count: ${processedItems.length}');
 
+      print('Debug: Creating order data');
       final orderData = {
         'address': _isDelivery ? {
           'instructions': _instructionsController.text,
@@ -665,8 +712,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
         'customerId': userId,
         'customerPhone': customerPhone,
       };
+      print('Debug: Order data created: ${json.encode(orderData)}');
 
       if (_selectedPaymentMethod == 'Card') {
+        print('Debug: Processing card payment');
         // Navigate to payment screen
         final bool? paymentResult = await Navigator.push(
           context,
