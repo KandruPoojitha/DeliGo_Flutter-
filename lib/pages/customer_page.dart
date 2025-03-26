@@ -462,11 +462,11 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Widget _buildFavoritesTab() {
-    return StreamBuilder(
+    return StreamBuilder<DatabaseEvent>(
       stream: FirebaseDatabase.instance
           .ref()
           .child('customers')
-          .child(FirebaseAuth.instance.currentUser?.uid ?? '')
+          .child(_auth.currentUser?.uid ?? '')
           .child('favorites')
           .onValue,
       builder: (context, snapshot) {
@@ -513,231 +513,108 @@ class _CustomerPageState extends State<CustomerPage> {
           );
         }
 
-        // Get all favorite item IDs (only include items where the value is true)
-        final favoriteItemIds = favorites.entries
-            .where((entry) => entry.value == true)
-            .map((entry) => entry.key)
-            .toList();
+        final favoriteItems = favorites.entries.toList();
 
-        // Stream for all restaurants to get menu items
-        return StreamBuilder(
-          stream: FirebaseDatabase.instance
-              .ref()
-              .child('restaurants')
-              .onValue,
-          builder: (context, restaurantSnapshot) {
-            if (restaurantSnapshot.hasError) {
-              return Center(
-                child: Text('Error: ${restaurantSnapshot.error}'),
-              );
-            }
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: favoriteItems.length,
+          itemBuilder: (context, index) {
+            final item = favoriteItems[index].value as Map<dynamic, dynamic>;
+            final itemId = favoriteItems[index].key;
 
-            if (restaurantSnapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: CircularProgressIndicator(),
-              );
-            }
-
-            final restaurants = restaurantSnapshot.data?.snapshot.value as Map?;
-            if (restaurants == null) {
-              return const Center(
-                child: Text('No restaurants available'),
-              );
-            }
-
-            // Collect all favorite menu items
-            List<Map<String, dynamic>> favoriteItems = [];
-            for (var restaurant in restaurants.entries) {
-              final restaurantId = restaurant.key;
-              final restaurantData = restaurant.value as Map;
-              final menuItems = restaurantData['menu_items'] as Map?;
-              
-              if (menuItems != null) {
-                for (var menuItem in menuItems.entries) {
-                  final itemId = menuItem.key;
-                  if (favoriteItemIds.contains(itemId)) {
-                    final itemData = menuItem.value as Map;
-                    favoriteItems.add({
-                      'id': itemId,
-                      'restaurantId': restaurantId,
-                      'restaurantName': restaurantData['store_info']?['name'] ?? 'Unknown Restaurant',
-                      ...itemData,
-                    });
-                  }
-                }
-              }
-            }
-
-            if (favoriteItems.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.favorite_border,
-                      size: 64,
-                      color: Colors.grey,
+            return Card(
+              margin: const EdgeInsets.only(bottom: 16),
+              child: InkWell(
+                onTap: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => MenuItemDetailsDialog(
+                      item: Map<String, dynamic>.from({
+                        ...item,
+                        'id': itemId,
+                      }),
+                      restaurantId: item['restaurantId'] ?? '',
+                      restaurantName: item['restaurantName'] ?? '',
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'No Favorite Items Found',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Add items to your favorites to see them here',
-                      style: TextStyle(
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: favoriteItems.length,
-              itemBuilder: (context, index) {
-                final item = favoriteItems[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  child: InkWell(
-                    onTap: () {
-                      showDialog(
-                        context: context,
-                        builder: (context) => MenuItemDetailsDialog(
-                          item: Map<String, dynamic>.from({
-                            ...item,
-                            'id': item['id'],
-                          }),
-                          restaurantId: item['restaurantId'],
-                          restaurantName: item['restaurantName'],
-                        ),
-                      );
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Item Image
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: item['imageURL'] != null
-                                ? Image.network(
-                                    item['imageURL'],
-                                    width: 100,
-                                    height: 100,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        width: 100,
-                                        height: 100,
-                                        color: Colors.grey[200],
-                                        child: const Icon(
-                                          Icons.restaurant,
-                                          color: Colors.grey,
-                                          size: 40,
-                                        ),
-                                      );
-                                    },
-                                  )
-                                : Container(
-                                    width: 100,
-                                    height: 100,
-                                    color: Colors.grey[200],
-                                    child: const Icon(
-                                      Icons.restaurant,
-                                      color: Colors.grey,
-                                      size: 40,
-                                    ),
-                                  ),
-                          ),
-                          const SizedBox(width: 16),
-                          // Item Details
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        item['name'] ?? 'Unnamed Item',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.favorite,
-                                        color: Colors.red,
-                                      ),
-                                      onPressed: () async {
-                                        try {
-                                          await FirebaseDatabase.instance
-                                              .ref()
-                                              .child('customers')
-                                              .child(FirebaseAuth.instance.currentUser?.uid ?? '')
-                                              .child('favorites')
-                                              .child(item['id'])
-                                              .set(false);
-                                        } catch (e) {
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(content: Text('Error removing from favorites: $e')),
-                                            );
-                                          }
-                                        }
-                                      },
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                    ),
-                                  ],
-                                ),
                                 Text(
-                                  item['restaurantName'],
+                                  item['name'] ?? 'Unnamed Item',
                                   style: const TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                if (item['description'] != null) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    item['description'],
-                                    style: const TextStyle(
-                                      color: Colors.grey,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                                const SizedBox(height: 8),
-                                Text(
-                                  '\$${(item['price'] ?? 0.0).toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                    fontSize: 16,
                                     fontWeight: FontWeight.bold,
-                                    color: Color(0xFFF4A261),
+                                    fontSize: 16,
                                   ),
                                 ),
+
                               ],
                             ),
                           ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.favorite,
+                              color: Colors.red,
+                            ),
+                            onPressed: () async {
+                              try {
+                                await FirebaseDatabase.instance
+                                    .ref()
+                                    .child('customers')
+                                    .child(_auth.currentUser?.uid ?? '')
+                                    .child('favorites')
+                                    .child(itemId)
+                                    .remove();
+                                
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Removed from favorites'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              } catch (e) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Error removing from favorites: $e')),
+                                );
+                              }
+                            },
+                          ),
                         ],
                       ),
-                    ),
+                      if (item['description'] != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          item['description'],
+                          style: const TextStyle(
+                            color: Colors.grey,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Text(
+                        '\$${(item['price'] ?? 0.0).toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFF4A261),
+                        ),
+                      ),
+                    ],
                   ),
-                );
-              },
+                ),
+              ),
             );
           },
         );
@@ -948,25 +825,58 @@ class _CustomerPageState extends State<CustomerPage> {
                                 ),
                                 if (item['customizations'] != null) ...[
                                   const SizedBox(height: 4),
-                                  ...(item['customizations'] as List).map((customization) {
-                                    if (customization == null) return const SizedBox.shrink();
-                                    
-                                    final selectedItems = customization['selectedItems'] as List?;
-                                    if (selectedItems == null || selectedItems.isEmpty) {
-                                      return const SizedBox.shrink();
-                                    }
+                                  Builder(
+                                    builder: (context) {
+                                      final customizations = item['customizations'];
+                                      if (customizations is List) {
+                                        // New format: List of Maps
+                                        return Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: customizations.map<Widget>((customization) {
+                                            if (customization == null) return const SizedBox.shrink();
+                                            
+                                            final selectedItems = customization['selectedItems'] as List?;
+                                            if (selectedItems == null || selectedItems.isEmpty) {
+                                              return const SizedBox.shrink();
+                                            }
 
-                                    return Padding(
-                                      padding: const EdgeInsets.only(top: 2),
-                                      child: Text(
-                                        '${customization['optionName']}: ${selectedItems.map((item) => '${item['name']} (+\$${(item['price'] ?? 0.0).toStringAsFixed(2)})').join(', ')}',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
+                                            return Padding(
+                                              padding: const EdgeInsets.only(top: 2),
+                                              child: Text(
+                                                '${customization['optionName']}: ${selectedItems.map((item) => '${item['name']} (+\$${(item['price'] ?? 0.0).toStringAsFixed(2)})').join(', ')}',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        );
+                                      } else if (customizations is Map) {
+                                        // Old format: Map
+                                        return Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: customizations.entries.map<Widget>((entry) {
+                                            final option = entry.value;
+                                            if (option == null || !(option is Map)) return const SizedBox.shrink();
+                                            
+                                            return Padding(
+                                              padding: const EdgeInsets.only(top: 2),
+                                              child: Text(
+                                                '${entry.key}: ${option['selected']}',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        );
+                                      } else {
+                                        return const SizedBox.shrink();
+                                      }
+                                    },
+                                  ),
                                 ],
                                 if (item['specialInstructions'] != null && 
                                     item['specialInstructions'].toString().isNotEmpty) ...[

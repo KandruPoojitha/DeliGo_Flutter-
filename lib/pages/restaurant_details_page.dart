@@ -528,7 +528,7 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
     }
   }
 
-  Future<void> _toggleFavorite(String itemId) async {
+  Future<void> _toggleFavorite(String itemId, Map<String, dynamic> itemData) async {
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId == null) return;
 
@@ -547,11 +547,28 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
           _favoriteItems.remove(itemId);
         });
       } else {
-        await ref.set(true);
+        // Save complete item data including restaurant info
+        final favoriteData = {
+          ...itemData,
+          'id': itemId,
+          'restaurantId': widget.restaurantId,
+          'restaurantName': widget.restaurant['store_info']?['name'] ?? 'Unknown Restaurant',
+          'category': itemData['category'] ?? 'Uncategorized',
+          'hasCustomizations': itemData['hasCustomizations'] ?? false,
+          'customizationOptions': itemData['customizationOptions'] ?? [],
+        };
+        await ref.set(favoriteData);
         setState(() {
           _favoriteItems.add(itemId);
         });
       }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isFavorite ? 'Removed from favorites' : 'Added to favorites'),
+          backgroundColor: isFavorite ? Colors.red : Colors.green,
+        ),
+      );
     } catch (e) {
       print('Error toggling favorite: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -642,34 +659,13 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
                               .child(itemId)
                               .onValue,
                           builder: (context, snapshot) {
-                            final isFavorite = snapshot.data?.snapshot.value == true;
+                            final isFavorite = snapshot.data?.snapshot.value != null;
                             return IconButton(
                               icon: Icon(
                                 isFavorite ? Icons.favorite : Icons.favorite_border,
                                 color: isFavorite ? Colors.red : Colors.grey,
                               ),
-                              onPressed: () async {
-                                try {
-                                  final ref = FirebaseDatabase.instance
-                                      .ref()
-                                      .child('customers')
-                                      .child(FirebaseAuth.instance.currentUser?.uid ?? '')
-                                      .child('favorites')
-                                      .child(itemId);
-                                  
-                                  if (isFavorite) {
-                                    await ref.remove();
-                                  } else {
-                                    await ref.set(true);
-                                  }
-                                } catch (e) {
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Error updating favorites: $e')),
-                                    );
-                                  }
-                                }
-                              },
+                              onPressed: () => _toggleFavorite(itemId, Map<String, dynamic>.from(item)),
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
                             );

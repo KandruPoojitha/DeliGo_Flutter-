@@ -59,16 +59,13 @@ class _DriverPageState extends State<DriverPage> {
   
   void _setupOrdersStream() {
     if (_user != null) {
-      // Create the original stream
-      final originalStream = FirebaseDatabase.instance
+      // Create a stream for orders assigned to the current driver
+      _ordersStream = FirebaseDatabase.instance
           .ref()
           .child('orders')
           .orderByChild('driverId')
-          .equalTo(_user?.uid)
+          .equalTo(_user!.uid)
           .onValue;
-      
-      // Set the broadcast stream
-      _ordersStream = originalStream.asBroadcastStream();
     }
   }
 
@@ -438,179 +435,88 @@ class _DriverPageState extends State<DriverPage> {
   }
 
   Widget _buildHomeTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
         children: [
           // Driver Status Card
           Card(
-            elevation: 4,
+          margin: const EdgeInsets.all(16),
             child: Padding(
-              padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Driver Status',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        _isOnline ? 'Online' : 'Offline',
+                      'Status: ${_isOnline ? 'Online' : 'Offline'}',
                         style: TextStyle(
-                          fontSize: 16,
+                        color: _isOnline ? Colors.green : Colors.red,
                           fontWeight: FontWeight.bold,
-                          color: _isOnline ? Colors.green : Colors.grey,
                         ),
                       ),
                       Switch(
                         value: _isOnline,
-                        onChanged: (value) => _toggleOnlineStatus(),
+                      onChanged: _isApproved ? (value) async {
+                        setState(() => _isOnline = value);
+                        await _driverService.updateDriverStatus(
+                          _user!.uid,
+                          isOnline: value,
+                        );
+                      } : null,
                         activeColor: Colors.green,
                       ),
                     ],
                   ),
+                if (_isApproved) ...[
                   const SizedBox(height: 8),
-                  Text(
-                    'Working Hours: ${_formatTimeOfDay(_startTime)} - ${_formatTimeOfDay(_endTime)}',
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Available for Orders Card
-          Card(
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Available for Orders',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        _isAvailableForOrders ? 'Available' : 'Unavailable',
+                        'Available for Orders: ${_isAvailableForOrders ? 'Yes' : 'No'}',
                         style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
                           color: _isAvailableForOrders ? Colors.green : Colors.red,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                       Switch(
                         value: _isAvailableForOrders,
-                        onChanged: (value) => _toggleAvailability(),
+                        onChanged: _isOnline ? (value) async {
+                          setState(() => _isAvailableForOrders = value);
+                          await _driverService.updateDriverStatus(
+                            _user!.uid,
+                            availableForOrders: value,
+                          );
+                        } : null,
                         activeColor: Colors.green,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Toggle this when you\'re ready to accept new orders',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
-                  ),
+                ],
                 ],
               ),
             ),
           ),
           
-          const SizedBox(height: 16),
-          
-          // Today's Stats Card
-          Card(
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Today\'s Stats',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildStatItem(
-                        'Deliveries',
-                        _deliveriesCount.toString(),
-                        Icons.delivery_dining,
-                      ),
-                      _buildStatItem(
-                        'Earnings',
-                        '\$${_earnings.toStringAsFixed(2)}',
-                        Icons.attach_money,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Available Orders Card
-          Card(
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Available Orders',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  StreamBuilder<DatabaseEvent>(
+        // Available Orders Section
+        Expanded(
+          child: StreamBuilder<DatabaseEvent>(
                     stream: FirebaseDatabase.instance
                         .ref()
                         .child('orders')
-                        .orderByChild('status')
-                        .equalTo('pending_driver')
+                .orderByChild('order_status')
+                .equalTo('assigned_driver')
                         .onValue,
                     builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      
                       if (snapshot.hasError) {
-                        return Center(
-                          child: Text('Error: ${snapshot.error}'),
-                        );
+                return Center(child: Text('Error: ${snapshot.error}'));
                       }
                       
                       if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
                         return const Center(
                           child: Text(
-                            'No available orders at the moment',
+                    'No available orders',
                             style: TextStyle(
                               fontSize: 16,
                               color: Colors.grey,
@@ -620,13 +526,33 @@ class _DriverPageState extends State<DriverPage> {
                       }
                       
                       try {
-                        final ordersData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-                        final orders = ordersData.entries.toList();
-                        
-                        if (orders.isEmpty) {
+                final data = snapshot.data!.snapshot.value;
+                if (data == null) {
+                  return const Center(
+                    child: Text(
+                      'No available orders',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  );
+                }
+
+                final ordersData = data as Map<dynamic, dynamic>;
+                final availableOrders = ordersData.entries
+                    .where((entry) {
+                      final order = entry.value as Map<dynamic, dynamic>;
+                      final orderStatus = order['order_status'] as String?;
+                      final driverId = order['driverId'] as String?;
+                      return orderStatus == 'assigned_driver' && driverId == _user!.uid;
+                    })
+                    .toList();
+
+                if (availableOrders.isEmpty) {
                           return const Center(
                             child: Text(
-                              'No available orders at the moment',
+                      'No available orders',
                               style: TextStyle(
                                 fontSize: 16,
                                 color: Colors.grey,
@@ -636,28 +562,128 @@ class _DriverPageState extends State<DriverPage> {
                         }
                         
                         return ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: orders.length > 3 ? 3 : orders.length,
+                  itemCount: availableOrders.length,
                           itemBuilder: (context, index) {
-                            final order = orders[index].value as Map<dynamic, dynamic>;
-                            final orderId = orders[index].key as String;
-                            final restaurantName = order['restaurantName'] as String? ?? 'Restaurant';
-                            final customerAddress = order['deliveryAddress'] as String? ?? 'Address';
-                            final totalAmount = (order['totalAmount'] as num?)?.toDouble() ?? 0.0;
-                            
-                            return ListTile(
-                              title: Text('Order #$orderId'),
-                              subtitle: Column(
+                    final order = availableOrders[index].value as Map<dynamic, dynamic>;
+                    final orderId = availableOrders[index].key as String;
+                    final customerName = order['customerName'] as String? ?? 'Unknown Customer';
+                    final customerPhone = order['customerPhone'] as String? ?? '';
+                    final totalAmount = (order['total'] as num?)?.toDouble() ?? 0.0;
+                    final address = order['address'] as Map<dynamic, dynamic>?;
+                    final street = address?['street'] as String? ?? 'No address provided';
+                    final restaurantId = order['restaurantId'] as String?;
+
+                    return FutureBuilder<DatabaseEvent>(
+                      future: FirebaseDatabase.instance
+                          .ref()
+                          .child('restaurants')
+                          .child(restaurantId ?? '')
+                          .once(),
+                      builder: (context, restaurantSnapshot) {
+                        if (restaurantSnapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+
+                        if (restaurantSnapshot.hasError || !restaurantSnapshot.hasData) {
+                          return Card(
+                            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('From: $restaurantName'),
-                                  Text('To: $customerAddress'),
+                                  Text('Error loading restaurant info'),
+                                  const SizedBox(height: 8),
+                                  Text('Customer: $customerName'),
+                                  Text('Phone: $customerPhone'),
+                                  Text('Address: $street'),
                                 ],
                               ),
-                              trailing: Text('\$${totalAmount.toStringAsFixed(2)}'),
-                              onTap: () {
-                                // Navigate to order details page
+                            ),
+                          );
+                        }
+
+                        final restaurantData = restaurantSnapshot.data!.snapshot.value as Map<dynamic, dynamic>?;
+                        final restaurantName = restaurantData?['restaurantName'] as String? ?? 'Unknown Restaurant';
+                        final restaurantPhone = restaurantData?['phone'] as String? ?? 'No phone provided';
+                        final restaurantAddress = restaurantData?['address'] as Map<dynamic, dynamic>?;
+                        final restaurantStreet = restaurantAddress?['street'] as String? ?? 'No restaurant address provided';
+                        final restaurantCity = restaurantAddress?['city'] as String? ?? '';
+                        final restaurantState = restaurantAddress?['state'] as String? ?? '';
+                        final restaurantZip = restaurantAddress?['zip'] as String? ?? '';
+                        final fullRestaurantAddress = '$restaurantStreet, $restaurantCity, $restaurantState $restaurantZip';
+
+                        return Card(
+                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'Order #$orderId',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '\$${totalAmount.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: Color(0xFFF4A261),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text('Customer: $customerName'),
+                                Text('Phone: $customerPhone'),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Restaurant Details:',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFF4A261),
+                                  ),
+                                ),
+                                Text('ID: $restaurantId'),
+                                Text('Name: $restaurantName'),
+                                Text('Phone: $restaurantPhone'),
+                                Text('Address: $fullRestaurantAddress'),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Delivery Address:',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFF4A261),
+                                  ),
+                                ),
+                                Text(street),
+                                const SizedBox(height: 16),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFFF4A261),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () => _acceptOrder(orderId),
+                                    child: const Text('Accept Order'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
                               },
                             );
                           },
@@ -669,55 +695,240 @@ class _DriverPageState extends State<DriverPage> {
                       }
                     },
                   ),
-                  if (_isOnline && _isAvailableForOrders)
-                    TextButton(
-                      onPressed: () {
-                        // Navigate to orders tab
+        ),
+      ],
+    );
+  }
+
+  Future<void> _acceptOrder(String orderId) async {
+    try {
+      setState(() => _isLoading = true);
+      
+      final driverData = await _driverService.getDriver(_user!.uid);
+      if (driverData == null) throw Exception('Driver data not found');
+
+      await FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .child(orderId)
+          .update({
+        'driverId': _user!.uid,
+        'driverName': driverData.fullName,
+        'driverPhone': driverData.phone,
+        'status': 'in_progress',
+        'order_status': 'driver_accepted',
+        'acceptedAt': ServerValue.timestamp,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Order accepted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error accepting order: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isApproved) {
+      // UI for approved drivers
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Driver Dashboard'),
+        ),
+        body: IndexedStack(
+          index: _selectedIndex,
+          children: [
+            _buildHomeTab(),
+            _buildOrdersTab(),
+            _buildAccountTab(),
+          ],
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: (index) {
                         setState(() {
-                          _selectedIndex = 1;
+              _selectedIndex = index;
                         });
                       },
-                      child: const Text('View All Available Orders'),
-                    )
-                  else
-                    const Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: Text(
-                        'Go online and available to see orders',
-                        style: TextStyle(color: Colors.grey),
-                        textAlign: TextAlign.center,
-                      ),
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.home),
+              label: 'Home',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.list_alt),
+              label: 'Orders',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person),
+              label: 'Account',
                     ),
                 ],
               ),
-            ),
+      );
+    } else {
+      // UI for document submission
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Driver Documents'),
+          actions: [
+            // Debug button - only show in debug mode
+            IconButton(
+              icon: const Icon(Icons.bug_report),
+              onPressed: () {
+                // Show a dialog to select the status
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Debug: Set Driver Status'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          title: const Text('Approved'),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _manuallyUpdateDriverStatus('approved');
+                          },
+                        ),
+                        ListTile(
+                          title: const Text('Pending Review'),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _manuallyUpdateDriverStatus('pending_review');
+                          },
+                        ),
+                        ListTile(
+                          title: const Text('Rejected'),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _manuallyUpdateDriverStatus('rejected');
+                          },
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel'),
           ),
         ],
       ),
     );
-  }
-  
-  Widget _buildStatItem(String label, String value, IconData icon) {
-    return Column(
+              },
+              tooltip: 'Debug: Set Status',
+            ),
+          ],
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Icon(icon, size: 32, color: const Color(0xFFF4A261)),
+                const Text(
+                  'Please upload your documents for verification',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 32),
+                const Text('Driver License Image:'),
         const SizedBox(height: 8),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 20,
+                ElevatedButton.icon(
+                  onPressed: () => _pickImage(true),
+                  icon: const Icon(Icons.photo_library),
+                  label: const Text('Choose from Gallery'),
+                ),
+                if (_licenseImage != null) ...[
+                  const SizedBox(height: 8),
+                  Image.file(_licenseImage!, height: 100),
+                ],
+                const SizedBox(height: 24),
+                const Text('Government ID Image:'),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: () => _pickImage(false),
+                  icon: const Icon(Icons.photo_library),
+                  label: const Text('Choose from Gallery'),
+                ),
+                if (_govtIdImage != null) ...[
+                  const SizedBox(height: 8),
+                  Image.file(_govtIdImage!, height: 100),
+                ],
+                const SizedBox(height: 24),
+                const Text(
+                  'Working Hours:',
+                  style: TextStyle(
+                    fontSize: 16,
             fontWeight: FontWeight.bold,
           ),
         ),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            color: Colors.grey,
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Start Time:'),
+                          const SizedBox(height: 8),
+                          ElevatedButton.icon(
+                            onPressed: () => _selectTime(context, true),
+                            icon: const Icon(Icons.access_time),
+                            label: Text(_formatTimeOfDay(_startTime)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('End Time:'),
+                          const SizedBox(height: 8),
+                          ElevatedButton.icon(
+                            onPressed: () => _selectTime(context, false),
+                            icon: const Icon(Icons.access_time),
+                            label: Text(_formatTimeOfDay(_endTime)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _submitForm,
+                  child: _isLoading
+                      ? const CircularProgressIndicator()
+                      : const Text('Submit Documents'),
+                ),
+              ],
+            ),
           ),
         ),
-      ],
-    );
+      );
+    }
   }
   
   Widget _buildOrdersTab() {
@@ -843,13 +1054,17 @@ class _DriverPageState extends State<DriverPage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
+                          Expanded(
+                            child: Text(
                             'Order #$orderId',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
                             ),
+                              overflow: TextOverflow.ellipsis,
                           ),
+                          ),
+                          const SizedBox(width: 8),
                           _buildStatusChip(status ?? 'unknown'),
                         ],
                       ),
@@ -1049,13 +1264,17 @@ class _DriverPageState extends State<DriverPage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
+                          Expanded(
+                            child: Text(
                             'Order #$orderId',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
                             ),
+                              overflow: TextOverflow.ellipsis,
                           ),
+                          ),
+                          const SizedBox(width: 8),
                           _buildStatusChip(status ?? 'unknown'),
                         ],
                       ),
@@ -1185,228 +1404,6 @@ class _DriverPageState extends State<DriverPage> {
       return '$date at $hour:$minute $period';
     } catch (e) {
       return isoString;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isApproved) {
-      // UI for approved drivers
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('Driver Dashboard'),
-        ),
-        body: IndexedStack(
-          index: _selectedIndex,
-          children: [
-            _buildHomeTab(),
-            _buildOrdersTab(),
-            _buildAccountTab(),
-          ],
-        ),
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _selectedIndex,
-          onTap: (index) {
-            setState(() {
-              _selectedIndex = index;
-            });
-          },
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home),
-              label: 'Home',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.list_alt),
-              label: 'Orders',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person),
-              label: 'Account',
-            ),
-          ],
-        ),
-      );
-    } else {
-      // UI for document submission
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('Driver Documents'),
-          actions: [
-            // Debug button - only show in debug mode
-            IconButton(
-              icon: const Icon(Icons.bug_report),
-              onPressed: () {
-                // Show a dialog to select the status
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Debug: Set Driver Status'),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ListTile(
-                          title: const Text('Approved'),
-                          onTap: () {
-                            Navigator.pop(context);
-                            _manuallyUpdateDriverStatus('approved');
-                          },
-                        ),
-                        ListTile(
-                          title: const Text('Pending Review'),
-                          onTap: () {
-                            Navigator.pop(context);
-                            _manuallyUpdateDriverStatus('pending_review');
-                          },
-                        ),
-                        ListTile(
-                          title: const Text('Rejected'),
-                          onTap: () {
-                            Navigator.pop(context);
-                            _manuallyUpdateDriverStatus('rejected');
-                          },
-                        ),
-                      ],
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-              tooltip: 'Debug: Set Status',
-            ),
-          ],
-        ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Please upload your documents for verification',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 32),
-                const Text('Driver License Image:'),
-                const SizedBox(height: 8),
-                ElevatedButton.icon(
-                  onPressed: () => _pickImage(true),
-                  icon: const Icon(Icons.photo_library),
-                  label: const Text('Choose from Gallery'),
-                ),
-                if (_licenseImage != null) ...[
-                  const SizedBox(height: 8),
-                  Image.file(_licenseImage!, height: 100),
-                ],
-                const SizedBox(height: 24),
-                const Text('Government ID Image:'),
-                const SizedBox(height: 8),
-                ElevatedButton.icon(
-                  onPressed: () => _pickImage(false),
-                  icon: const Icon(Icons.photo_library),
-                  label: const Text('Choose from Gallery'),
-                ),
-                if (_govtIdImage != null) ...[
-                  const SizedBox(height: 8),
-                  Image.file(_govtIdImage!, height: 100),
-                ],
-                const SizedBox(height: 24),
-                const Text(
-                  'Working Hours:',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Start Time:'),
-                          const SizedBox(height: 8),
-                          ElevatedButton.icon(
-                            onPressed: () => _selectTime(context, true),
-                            icon: const Icon(Icons.access_time),
-                            label: Text(_formatTimeOfDay(_startTime)),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('End Time:'),
-                          const SizedBox(height: 8),
-                          ElevatedButton.icon(
-                            onPressed: () => _selectTime(context, false),
-                            icon: const Icon(Icons.access_time),
-                            label: Text(_formatTimeOfDay(_endTime)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _submitForm,
-                  child: _isLoading
-                      ? const CircularProgressIndicator()
-                      : const Text('Submit Documents'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-  }
-
-  Future<void> _updateOrderStatus(String orderId, String status) async {
-    try {
-      setState(() => _isLoading = true);
-      
-      final now = DateTime.now().toIso8601String();
-      
-      await FirebaseDatabase.instance
-          .ref()
-          .child('orders')
-          .child(orderId)
-          .update({
-        'status': status,
-        'updatedAt': now,
-      });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Order marked as $status'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating order: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      setState(() => _isLoading = false);
     }
   }
   
@@ -1640,5 +1637,38 @@ class _DriverPageState extends State<DriverPage> {
         ),
       ],
     );
+  }
+
+  Future<void> _updateOrderStatus(String orderId, String status) async {
+    try {
+      setState(() => _isLoading = true);
+      
+      final now = DateTime.now().toIso8601String();
+      
+      await FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .child(orderId)
+          .update({
+        'status': status,
+        'updatedAt': now,
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Order marked as $status'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating order: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 } 

@@ -508,6 +508,21 @@ class _CheckoutPageState extends State<CheckoutPage> {
       final userId = FirebaseAuth.instance.currentUser?.uid;
       if (userId == null) throw Exception('User not logged in');
 
+      // Get customer information
+      final customerSnapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('customers')
+          .child(userId)
+          .get();
+
+      if (!customerSnapshot.exists) {
+        throw Exception('Customer information not found');
+      }
+
+      final customerData = customerSnapshot.value as Map<dynamic, dynamic>;
+      final customerName = customerData['fullName'] as String? ?? 'Unknown Customer';
+      final customerPhone = customerData['phone'] as String? ?? '';
+
       // Get current location
       Position position = await Geolocator.getCurrentPosition();
 
@@ -573,6 +588,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
         'tipPercentage': _tipPercentage,
         'total': _totalAmount,
         'userId': userId,
+        'customerName': customerName,
+        'customerId': userId,
+        'customerPhone': customerPhone,
       };
 
       if (_selectedPaymentMethod == 'Card') {

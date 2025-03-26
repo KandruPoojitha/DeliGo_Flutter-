@@ -60,6 +60,37 @@ class DriverService {
     print('Updated driver approval status: ${isApproved ? 'approved' : 'rejected'}');
   }
 
+  Future<void> updateDriverStatus(
+    String uid, {
+    bool? isOnline,
+    bool? availableForOrders,
+    String? status,
+  }) async {
+    try {
+      final Map<String, dynamic> updates = {
+        'updatedAt': ServerValue.timestamp,
+      };
+
+      if (isOnline != null) {
+        updates['isOnline'] = isOnline;
+      }
+      if (availableForOrders != null) {
+        updates['availableForOrders'] = availableForOrders;
+      }
+      if (status != null) {
+        updates['status'] = status;
+      }
+
+      await _database
+          .ref()
+          .child('drivers')
+          .child(uid)
+          .update(updates);
+    } catch (e) {
+      throw Exception('Failed to update driver status: $e');
+    }
+  }
+
   Stream<Driver?> getDriverStream(String uid) {
     return _database.ref().child('drivers').child(uid).onValue.map((event) {
       if (event.snapshot.exists) {

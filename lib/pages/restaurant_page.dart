@@ -740,9 +740,9 @@ class _RestaurantPageState extends State<RestaurantPage> {
             ? (order['total'] as int).toDouble()
             : order['total'] as double? ?? 0.0;
             
-        final orderId = order['id'] as String;
-        final userId = order['userId'] as String?;
-        final deliveryOption = order['deliveryOption'] as String;
+        final orderId = order['id']?.toString() ?? 'Unknown Order';
+        final userId = order['userId']?.toString();
+        final deliveryOption = order['deliveryOption']?.toString() ?? 'Pickup';
         final address = order['address'] as Map<dynamic, dynamic>?;
         final createdAt = order['createdAt'] as int? ?? 0;
         
@@ -891,7 +891,15 @@ class _RestaurantPageState extends State<RestaurantPage> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: customizationsMap.values.map<Widget>((customization) {
-                                  final custom = customization as Map<dynamic, dynamic>;
+                                  // Handle both Map and List types
+                                  Map<dynamic, dynamic> custom;
+                                  if (customization is List) {
+                                    // If it's a list, take the first item
+                                    custom = customization.isNotEmpty ? (customization.first as Map<dynamic, dynamic>) : {};
+                                  } else {
+                                    custom = customization as Map<dynamic, dynamic>;
+                                  }
+                                  
                                   final price = custom['price'] as num? ?? 0.0;
                                   final optionName = custom['optionName'] as String? ?? '';
                                   final selectedName = custom['name'] as String? ?? '';
