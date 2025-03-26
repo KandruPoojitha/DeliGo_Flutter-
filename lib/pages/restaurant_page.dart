@@ -717,6 +717,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
       padding: const EdgeInsets.all(8),
       itemBuilder: (context, index) {
         final order = orders[index].value as Map<dynamic, dynamic>;
+        final orderId = orders[index].key as String;
         final items = order['items'] as List<dynamic>;
         final customizations = items.map((item) {
           final itemMap = item as Map<dynamic, dynamic>;
@@ -740,7 +741,6 @@ class _RestaurantPageState extends State<RestaurantPage> {
             ? (order['total'] as int).toDouble()
             : order['total'] as double? ?? 0.0;
             
-        final orderId = order['id']?.toString() ?? 'Unknown Order';
         final userId = order['userId']?.toString();
         final deliveryOption = order['deliveryOption']?.toString() ?? 'Pickup';
         final address = order['address'] as Map<dynamic, dynamic>?;
