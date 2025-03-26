@@ -26,12 +26,16 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
   void initState() {
     super.initState();
     // Initialize selected customizations
-    if (widget.menuItem['customizationOptions'] != null) {
-      for (final customization in widget.menuItem['customizationOptions'] as List) {
-        for (final option in customization['options'] as List) {
-          _selectedCustomizations[option['name']] = false;
+    if (widget.menuItem['customizations'] != null) {
+      final customizations = widget.menuItem['customizations'] as Map;
+      customizations.forEach((key, customization) {
+        if (customization is Map && customization['selectedItems'] != null) {
+          final selectedItems = customization['selectedItems'] as List;
+          for (var item in selectedItems) {
+            _selectedCustomizations[item['name']] = true;
+          }
         }
-      }
+      });
     }
   }
 
@@ -41,8 +45,57 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
     });
 
     try {
-      final menuItemWithCustomizations = Map<String, dynamic>.from(widget.menuItem);
-      menuItemWithCustomizations['selectedCustomizations'] = _selectedCustomizations;
+      // Structure customizations properly
+      Map<String, dynamic> formattedCustomizations = {};
+      
+      if (widget.menuItem['customizations'] != null) {
+        final customizations = widget.menuItem['customizations'] as Map;
+        
+        customizations.forEach((optionId, option) {
+          if (option is Map && option['selectedItems'] != null) {
+            List<Map<String, dynamic>> selectedItems = [];
+            
+            for (var item in option['selectedItems'] as List) {
+              if (_selectedCustomizations[item['name']] == true) {
+                selectedItems.add({
+                  'id': item['id'],
+                  'name': item['name'],
+                  'price': item['price'] ?? 0.0,
+                });
+              }
+            }
+            
+            if (selectedItems.isNotEmpty) {
+              double optionTotalPrice = 0.0;
+              for (var item in selectedItems) {
+                optionTotalPrice += (item['price'] ?? 0.0);
+              }
+              
+              formattedCustomizations[optionId] = {
+                'optionId': optionId,
+                'optionName': option['optionName'] ?? 'Unknown Option',
+                'price': optionTotalPrice,
+                'selectedItems': selectedItems,
+              };
+            }
+          }
+        });
+      }
+      
+      final menuItemWithCustomizations = {
+        'id': widget.menuItem['id'],
+        'name': widget.menuItem['name'],
+        'description': widget.menuItem['description'] ?? '',
+        'price': widget.menuItem['price'],
+        'imageURL': widget.menuItem['imageURL'] ?? widget.menuItem['imageUrl'],
+        'menuItemId': widget.menuItem['id'],
+        'customizations': formattedCustomizations,
+      };
+
+      // Safety check - explicitly remove any customizationOptions
+      if (menuItemWithCustomizations.containsKey('customizationOptions')) {
+        menuItemWithCustomizations.remove('customizationOptions');
+      }
 
       await _cartService.addToCart(
         menuItemWithCustomizations,
@@ -154,7 +207,7 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
                     color: Color(0xFFF4A261),
                   ),
                 ),
-                if (widget.menuItem['customizationOptions'] != null) ...[
+                if (widget.menuItem['customizations'] != null) ...[
                   const SizedBox(height: 16),
                   const Text(
                     'Customizations',
@@ -164,12 +217,18 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  ...(widget.menuItem['customizationOptions'] as List).map((customization) {
+                  ...(widget.menuItem['customizations'] as Map).entries.map((entry) {
+                    final customization = entry.value;
+                    if (customization is! Map) return const SizedBox.shrink();
+                    
+                    final selectedItems = customization['selectedItems'] as List?;
+                    if (selectedItems == null) return const SizedBox.shrink();
+                    
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          customization['name'],
+                          customization['optionName'] ?? 'Option',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
@@ -178,13 +237,13 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
                         const SizedBox(height: 8),
                         Wrap(
                           spacing: 8,
-                          children: (customization['options'] as List).map<Widget>((option) {
+                          children: selectedItems.map<Widget>((item) {
                             return FilterChip(
-                              label: Text(option['name']),
-                              selected: _selectedCustomizations[option['name']] ?? false,
+                              label: Text(item['name']),
+                              selected: _selectedCustomizations[item['name']] ?? false,
                               onSelected: (selected) {
                                 setState(() {
-                                  _selectedCustomizations[option['name']] = selected;
+                                  _selectedCustomizations[item['name']] = selected;
                                 });
                               },
                             );

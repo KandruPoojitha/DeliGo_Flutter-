@@ -828,14 +828,14 @@ class _CustomerPageState extends State<CustomerPage> {
                                   Builder(
                                     builder: (context) {
                                       final customizations = item['customizations'];
-                                      if (customizations is List) {
-                                        // New format: List of Maps
+                                      if (customizations is Map) {
                                         return Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: customizations.map<Widget>((customization) {
-                                            if (customization == null) return const SizedBox.shrink();
+                                          children: customizations.entries.map<Widget>((entry) {
+                                            final option = entry.value;
+                                            if (option == null || !(option is Map)) return const SizedBox.shrink();
                                             
-                                            final selectedItems = customization['selectedItems'] as List?;
+                                            final selectedItems = option['selectedItems'] as List?;
                                             if (selectedItems == null || selectedItems.isEmpty) {
                                               return const SizedBox.shrink();
                                             }
@@ -843,27 +843,7 @@ class _CustomerPageState extends State<CustomerPage> {
                                             return Padding(
                                               padding: const EdgeInsets.only(top: 2),
                                               child: Text(
-                                                '${customization['optionName']}: ${selectedItems.map((item) => '${item['name']} (+\$${(item['price'] ?? 0.0).toStringAsFixed(2)})').join(', ')}',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color: Colors.grey[600],
-                                                ),
-                                              ),
-                                            );
-                                          }).toList(),
-                                        );
-                                      } else if (customizations is Map) {
-                                        // Old format: Map
-                                        return Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: customizations.entries.map<Widget>((entry) {
-                                            final option = entry.value;
-                                            if (option == null || !(option is Map)) return const SizedBox.shrink();
-                                            
-                                            return Padding(
-                                              padding: const EdgeInsets.only(top: 2),
-                                              child: Text(
-                                                '${entry.key}: ${option['selected']}',
+                                                '${option['optionName']}: ${selectedItems.map((item) => '${item['name']} (+\$${(item['price'] ?? 0.0).toStringAsFixed(2)})').join(', ')}',
                                                 style: TextStyle(
                                                   fontSize: 12,
                                                   color: Colors.grey[600],

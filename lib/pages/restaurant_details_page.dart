@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../services/cart_service.dart';
 
 class MenuItemDetailsDialog extends StatefulWidget {
   final Map<String, dynamic> item;
@@ -19,6 +20,7 @@ class MenuItemDetailsDialog extends StatefulWidget {
 }
 
 class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
+  final _cartService = CartService();
   int quantity = 1;
   double basePrice = 0;
   double totalPrice = 0;
@@ -77,100 +79,78 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
     });
   }
 
-  Future<void> _addToCart() async {
+  void _addToCart(Map<String, dynamic> itemData) async {
     try {
-      final userId = FirebaseAuth.instance.currentUser?.uid;
-      if (userId == null) return;
-
-      // Create customizations array with the new structure
-      List<Map<String, dynamic>> customizations = [];
-      widget.item['customizationOptions']?.forEach((customization) {
-        List<Map<String, dynamic>> selectedItems = [];
-        final options = customization['options'] as List?;
-        if (options != null) {
-          for (var option in options) {
-            final optionMap = Map<String, dynamic>.from(option);
-            if (selectedCustomizations[optionMap['name']] == true) {
-              selectedItems.add({
-                'id': optionMap['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-                'name': optionMap['name'],
-                'price': optionMap['price'] ?? 0.0,
-              });
+      // Format selected customizations
+      Map<String, dynamic> formattedCustomizations = {};
+      
+      if (itemData['customizationOptions'] != null) {
+        final customizationsList = itemData['customizationOptions'] as List;
+        for (var customization in customizationsList) {
+          final options = customization['options'] as List?;
+          if (options != null) {
+            List<Map<String, dynamic>> selectedItems = [];
+            
+            for (var option in options) {
+              if (selectedCustomizations[option['name']] == true) {
+                selectedItems.add({
+                  'id': option['id'] ?? UniqueKey().toString(),
+                  'name': option['name'],
+                  'price': option['price'] ?? 0.0,
+                });
+              }
+            }
+            
+            if (selectedItems.isNotEmpty) {
+              final optionId = customization['id'] ?? UniqueKey().toString();
+              // Create the nested structure with "0" key
+              formattedCustomizations[optionId] = {
+                "0": {  // Add this extra nesting level
+                  'optionId': optionId,
+                  'optionName': customization['name'] ?? 'Unknown Option',
+                  'price': selectedItems.fold(0.0, (sum, item) => sum + (item['price'] ?? 0.0)),
+                  'selectedItems': {  // Make selectedItems a map with "0" key
+                    "0": selectedItems[0]  // Since we're handling single selection, take first item
+                  }
+                }
+              };
             }
           }
         }
+      }
 
-        if (selectedItems.isNotEmpty) {
-          customizations.add({
-            'optionId': customization['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-            'optionName': customization['name'],
-            'price': 0.0, // Base price for the customization group
-            'selectedItems': selectedItems,
-          });
-        }
-      });
-
-      // Create cart item with the new customizations structure
-      final cartItem = {
-        ...widget.item,
+      // Create clean item data with only necessary fields
+      final cleanItemData = {
+        'id': itemData['id'],
+        'name': itemData['name'],
+        'description': itemData['description'] ?? '',
+        'price': itemData['price'],
+        'imageURL': itemData['imageURL'],
+        'menuItemId': itemData['id'],
         'quantity': quantity,
-        'customizations': customizations,
         'totalPrice': totalPrice,
         'restaurantId': widget.restaurantId,
         'restaurantName': widget.restaurantName,
+        'customizations': formattedCustomizations,
         'addedAt': ServerValue.timestamp,
       };
 
-      // Remove old selectedCustomizations field
-      cartItem.remove('selectedCustomizations');
-
-      // Add to cart in Firebase
-      await FirebaseDatabase.instance
-          .ref()
-          .child('customers')
-          .child(userId)
-          .child('cart')
-          .push()
-          .set(cartItem);
+      await _cartService.addToCart(
+        cleanItemData,
+        widget.restaurantId,
+        widget.restaurantName,
+      );
 
       if (mounted) {
-        // Show success dialog
-        await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Row(
-              children: [
-                const Icon(
-                  Icons.shopping_cart,
-                  color: Color(0xFFF4A261),
-                ),
-                const SizedBox(width: 8),
-                const Text('Cart'),
-              ],
-            ),
-            content: const Text('Item added to cart successfully!'),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop(); // Close dialog
-                  Navigator.of(context).pop(); // Close menu item details
-                },
-                child: const Text(
-                  'OK',
-                  style: TextStyle(
-                    color: Color(0xFFF4A261),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Added to cart')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error adding item to cart: $e')),
+          SnackBar(content: Text('Error adding to cart: $e')),
         );
       }
     }
@@ -460,7 +440,7 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
-                      onPressed: _addToCart,
+                      onPressed: () => _addToCart(widget.item),
                       child: const Text(
                         'Add to Cart',
                         style: TextStyle(

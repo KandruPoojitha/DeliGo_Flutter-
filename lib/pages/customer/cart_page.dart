@@ -46,6 +46,14 @@ class _CartPageState extends State<CartPage> {
   }
 
   Widget _buildCartItem(String itemId, Map<String, dynamic> item) {
+    // Debug print to check if customizations exist in the item data
+    print("Cart Item Data: ${item.keys.toList()}");
+    if (item['customizations'] != null) {
+      print("Customizations found: ${item['customizations']}");
+    } else {
+      print("No customizations found for item: ${item['name']}");
+    }
+    
     return Dismissible(
       key: Key(itemId),
       direction: DismissDirection.endToStart,
@@ -53,164 +61,251 @@ class _CartPageState extends State<CartPage> {
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20.0),
         color: Colors.red,
-        child: const Icon(
-          Icons.delete,
-          color: Colors.white,
-        ),
+        child: const Icon(Icons.delete, color: Colors.white),
       ),
       onDismissed: (direction) => _removeFromCart(itemId),
       child: Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+        margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
         child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Row(
+          padding: const EdgeInsets.all(16),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Item Image
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: item['imageUrl'] != null
-                    ? Image.network(
-                        item['imageUrl'],
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Item Image
+                  if (item['imageURL'] != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        item['imageURL'],
                         width: 80,
                         height: 80,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            width: 80,
-                            height: 80,
-                            color: Colors.grey[200],
-                            child: const Icon(
-                              Icons.restaurant,
-                              color: Colors.grey,
-                              size: 32,
-                            ),
-                          );
-                        },
-                      )
-                    : Container(
-                        width: 80,
-                        height: 80,
-                        color: Colors.grey[200],
-                        child: const Icon(
-                          Icons.restaurant,
-                          color: Colors.grey,
-                          size: 32,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          width: 80,
+                          height: 80,
+                          color: Colors.grey[200],
+                          child: const Icon(Icons.restaurant, color: Colors.grey),
                         ),
                       ),
-              ),
-              const SizedBox(width: 12),
-              // Item Details
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item['name'] ?? 'Unnamed Item',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item['restaurantName'] ?? '',
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    // Selected Customizations
-                    if (item['selectedCustomizations'] != null &&
-                        item['customizationOptions'] != null) ...[
-                      Text(
-                        'Customizations:',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      ...(item['customizationOptions'] as List)
-                          .where((customization) {
-                            final options = customization['options'] as List;
-                            return options.any((option) =>
-                                (item['selectedCustomizations'] as Map)[option['name']] == true);
-                          })
-                          .map((customization) {
-                            final selectedOptions = (customization['options'] as List)
-                                .where((option) =>
-                                    (item['selectedCustomizations'] as Map)[option['name']] == true)
-                                .map((option) => option['name'])
-                                .join(', ');
-                            return Text(
-                              '${customization['name']}: $selectedOptions',
-                              style: const TextStyle(
-                                color: Colors.grey,
-                                fontSize: 12,
-                              ),
-                            );
-                          }),
-                    ],
-                    const SizedBox(height: 8),
-                    // Price and Quantity
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  const SizedBox(width: 16),
+                  // Item Details
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '\$${((item['totalPrice'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: Color(0xFFF4A261),
-                          ),
-                        ),
                         Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            IconButton(
-                              icon: const Icon(Icons.remove_circle_outline),
-                              onPressed: () => _updateQuantity(
-                                itemId,
-                                item,
-                                (item['quantity'] as int?) ?? 1 - 1,
-                              ),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                            Expanded(
                               child: Text(
-                                (item['quantity'] ?? 1).toString(),
+                                item['name'] ?? 'Unnamed Item',
                                 style: const TextStyle(
-                                  fontSize: 16,
                                   fontWeight: FontWeight.bold,
+                                  fontSize: 16,
                                 ),
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.add_circle_outline),
-                              onPressed: () => _updateQuantity(
-                                itemId,
-                                item,
-                                (item['quantity'] as int?) ?? 1 + 1,
-                              ),
+                              icon: const Icon(Icons.delete_outline, color: Colors.red),
+                              onPressed: () => _removeFromCart(itemId),
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
                             ),
                           ],
                         ),
+                        if (item['restaurantName'] != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            item['restaurantName'],
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                        // Price per item
+                        const SizedBox(height: 4),
+                        Text(
+                          '\$${(item['price'] ?? 0.0).toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        
+                        // ALWAYS display customizations section for debugging
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey[300]!),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "Customizations:",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              if (item['customizations'] != null && 
+                                  item['customizations'] is Map && 
+                                  (item['customizations'] as Map).isNotEmpty)
+                                ..._buildCustomizations(item['customizations'])
+                              else
+                                const Text(
+                                  "No customizations",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontStyle: FontStyle.italic,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // Quantity and Total Price
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Quantity Controls
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove),
+                          onPressed: () => _updateQuantity(itemId, item, (item['quantity'] ?? 1) - 1),
+                          padding: const EdgeInsets.all(4),
+                          constraints: const BoxConstraints(),
+                          iconSize: 20,
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            '${item['quantity'] ?? 1}',
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add),
+                          onPressed: () => _updateQuantity(itemId, item, (item['quantity'] ?? 1) + 1),
+                          padding: const EdgeInsets.all(4),
+                          constraints: const BoxConstraints(),
+                          iconSize: 20,
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Total Price
+                  Text(
+                    '\$${(item['totalPrice'] ?? 0.0).toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFF4A261),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  List<Widget> _buildCustomizations(Map<String, dynamic> customizations) {
+    List<Widget> customizationWidgets = [];
+    
+    print("Building customizations from: $customizations");
+    
+    customizations.forEach((customizationId, customizationData) {
+      print("Processing customization ID: $customizationId, data: $customizationData");
+      
+      // First level is the customization ID
+      if (customizationData != null) {
+        // Second level has "0" key
+        final zeroLevelData = customizationData['0'] as Map<String, dynamic>?;
+        print("Zero level data: $zeroLevelData");
+        
+        if (zeroLevelData != null) {
+          final optionId = zeroLevelData['optionId'] as String?;
+          final optionName = zeroLevelData['optionName'] as String?;
+          final price = zeroLevelData['price'] as num?;
+          
+          print("Option Name: $optionName, Option ID: $optionId");
+          
+          // Get selectedItems which also has a "0" key
+          final selectedItems = zeroLevelData['selectedItems'] as Map<String, dynamic>?;
+          print("Selected Items: $selectedItems");
+          
+          if (selectedItems != null) {
+            final selectedItem = selectedItems['0'] as Map<String, dynamic>?;
+            print("Selected Item at index 0: $selectedItem");
+            
+            if (selectedItem != null) {
+              final itemName = selectedItem['name'] as String?;
+              final itemPrice = selectedItem['price'] as num?;
+              
+              print("Item Name: $itemName, Item Price: $itemPrice");
+              
+              if (optionName != null && itemName != null) {
+                customizationWidgets.add(
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '$optionName: $itemName',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        if (itemPrice != null && itemPrice > 0)
+                          Text(
+                            '+\$${itemPrice.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFFF4A261),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    print("Generated ${customizationWidgets.length} customization widgets");
+    return customizationWidgets;
   }
 
   @override
