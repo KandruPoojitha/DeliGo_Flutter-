@@ -21,6 +21,30 @@ class CartService {
 
       if (cartItemId == null) throw Exception('Failed to generate cart item ID');
 
+      // Calculate total price including customizations
+      double basePrice = (menuItem['price'] as num).toDouble();
+      double customizationPrice = 0.0;
+
+      if (menuItem['customizations'] != null) {
+        final customizations = menuItem['customizations'] as Map;
+        
+        customizations.forEach((key, value) {
+          if (value is Map) {
+            // Add prices from selected items
+            final selectedItems = value['selectedItems'] as List?;
+            if (selectedItems != null) {
+              for (var selectedItem in selectedItems) {
+                if (selectedItem is Map && selectedItem['price'] != null) {
+                  customizationPrice += (selectedItem['price'] as num).toDouble();
+                }
+              }
+            }
+          }
+        });
+      }
+
+      final totalPrice = basePrice + customizationPrice;
+
       // Create a clean cart item with only the necessary fields
       final cartItem = {
         'id': menuItem['id'],
@@ -30,7 +54,7 @@ class CartService {
         'imageURL': menuItem['imageURL'] ?? menuItem['imageUrl'],
         'menuItemId': menuItem['id'],
         'quantity': 1,
-        'totalPrice': menuItem['price'],
+        'totalPrice': totalPrice,
         'restaurantId': restaurantId,
         'restaurantName': restaurantName,
         'addedAt': ServerValue.timestamp,
@@ -38,7 +62,21 @@ class CartService {
       
       // Only add customizations if they exist in the expected format
       if (menuItem['customizations'] != null) {
-        cartItem['customizations'] = menuItem['customizations'];
+        // Clean up customizations to remove option-level prices
+        final cleanCustomizations = <String, dynamic>{};
+        final customizations = menuItem['customizations'] as Map;
+        
+        customizations.forEach((key, value) {
+          if (value is Map) {
+            cleanCustomizations[key] = {
+              'optionId': value['optionId'],
+              'optionName': value['optionName'],
+              'selectedItems': value['selectedItems'],
+            };
+          }
+        });
+        
+        cartItem['customizations'] = cleanCustomizations;
       }
 
       // Add to cart
@@ -89,8 +127,16 @@ class CartService {
         final customizations = item['customizations'] as Map;
         
         customizations.forEach((key, value) {
-          if (value is Map && value['price'] != null) {
-            customizationPrice += (value['price'] as num).toDouble();
+          if (value is Map) {
+            // Add prices from selected items
+            final selectedItems = value['selectedItems'] as List?;
+            if (selectedItems != null) {
+              for (var selectedItem in selectedItems) {
+                if (selectedItem is Map && selectedItem['price'] != null) {
+                  customizationPrice += (selectedItem['price'] as num).toDouble();
+                }
+              }
+            }
           }
         });
       }
@@ -120,11 +166,12 @@ class CartService {
 
     return _database
         .ref()
-        .child('users/${user.uid}/cart')
+        .child('customers')
+        .child(user.uid)
+        .child('cart')
         .onValue
         .map((event) {
           final data = event.snapshot.value;
-          print("Raw cart data from Firebase: $data");
           
           if (data == null) {
             return null;
@@ -135,19 +182,12 @@ class CartService {
             final map = data as Map<dynamic, dynamic>;
             map.forEach((key, value) {
               final item = Map<String, dynamic>.from(value as Map);
-              print("Cart item key: $key");
-              print("Cart item data structure: ${item.keys.toList()}");
-              if (item['customizations'] != null) {
-                print("Customizations for item ${item['name']}: ${item['customizations']}");
-                print("Customizations type: ${item['customizations'].runtimeType}");
-              }
               cartItems[key.toString()] = item;
             });
           } catch (e) {
             print("Error parsing cart data: $e");
           }
           
-          print("Transformed cart items: ${cartItems.keys.toList()}");
           return cartItems;
         });
   }

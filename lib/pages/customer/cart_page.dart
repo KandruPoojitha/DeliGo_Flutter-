@@ -46,14 +46,6 @@ class _CartPageState extends State<CartPage> {
   }
 
   Widget _buildCartItem(String itemId, Map<String, dynamic> item) {
-    // Debug print to check if customizations exist in the item data
-    print("Cart Item Data: ${item.keys.toList()}");
-    if (item['customizations'] != null) {
-      print("Customizations found: ${item['customizations']}");
-    } else {
-      print("No customizations found for item: ${item['name']}");
-    }
-    
     return Dismissible(
       key: Key(itemId),
       direction: DismissDirection.endToStart,
@@ -137,42 +129,34 @@ class _CartPageState extends State<CartPage> {
                           ),
                         ),
                         
-                        // ALWAYS display customizations section for debugging
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey[300]!),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                "Customizations:",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              if (item['customizations'] != null && 
-                                  item['customizations'] is Map && 
-                                  (item['customizations'] as Map).isNotEmpty)
-                                ..._buildCustomizations(item['customizations'])
-                              else
+                        // Only show customizations section if there are customizations
+                        if (item['customizations'] != null && 
+                            item['customizations'] is Map && 
+                            (item['customizations'] as Map).isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey[300]!),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 const Text(
-                                  "No customizations",
+                                  "Customizations:",
                                   style: TextStyle(
+                                    fontWeight: FontWeight.bold,
                                     fontSize: 12,
-                                    fontStyle: FontStyle.italic,
-                                    color: Colors.grey,
                                   ),
                                 ),
-                            ],
+                                const SizedBox(height: 4),
+                                ..._buildCustomizations(item['customizations']),
+                              ],
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
@@ -198,11 +182,11 @@ class _CartPageState extends State<CartPage> {
                           constraints: const BoxConstraints(),
                           iconSize: 20,
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Text(
-                            '${item['quantity'] ?? 1}',
-                            style: const TextStyle(fontSize: 16),
+                        Text(
+                          '${item['quantity'] ?? 1}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                         IconButton(
@@ -215,11 +199,11 @@ class _CartPageState extends State<CartPage> {
                       ],
                     ),
                   ),
-                  // Total Price
+                  // Total Price for this item
                   Text(
                     '\$${(item['totalPrice'] ?? 0.0).toStringAsFixed(2)}',
                     style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFFF4A261),
                     ),
@@ -236,39 +220,18 @@ class _CartPageState extends State<CartPage> {
   List<Widget> _buildCustomizations(Map<String, dynamic> customizations) {
     List<Widget> customizationWidgets = [];
     
-    print("Building customizations from: $customizations");
-    
     customizations.forEach((customizationId, customizationData) {
-      print("Processing customization ID: $customizationId, data: $customizationData");
-      
-      // First level is the customization ID
-      if (customizationData != null) {
-        // Second level has "0" key
-        final zeroLevelData = customizationData['0'] as Map<String, dynamic>?;
-        print("Zero level data: $zeroLevelData");
+      if (customizationData != null && customizationData is Map) {
+        final optionName = customizationData['optionName'] as String?;
+        final selectedItems = customizationData['selectedItems'] as List?;
         
-        if (zeroLevelData != null) {
-          final optionId = zeroLevelData['optionId'] as String?;
-          final optionName = zeroLevelData['optionName'] as String?;
-          final price = zeroLevelData['price'] as num?;
-          
-          print("Option Name: $optionName, Option ID: $optionId");
-          
-          // Get selectedItems which also has a "0" key
-          final selectedItems = zeroLevelData['selectedItems'] as Map<String, dynamic>?;
-          print("Selected Items: $selectedItems");
-          
-          if (selectedItems != null) {
-            final selectedItem = selectedItems['0'] as Map<String, dynamic>?;
-            print("Selected Item at index 0: $selectedItem");
-            
-            if (selectedItem != null) {
-              final itemName = selectedItem['name'] as String?;
-              final itemPrice = selectedItem['price'] as num?;
+        if (optionName != null && selectedItems != null) {
+          for (var item in selectedItems) {
+            if (item is Map) {
+              final itemName = item['name'] as String?;
+              final itemPrice = item['price'] as num?;
               
-              print("Item Name: $itemName, Item Price: $itemPrice");
-              
-              if (optionName != null && itemName != null) {
+              if (itemName != null) {
                 customizationWidgets.add(
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4),
@@ -304,7 +267,6 @@ class _CartPageState extends State<CartPage> {
       }
     });
     
-    print("Generated ${customizationWidgets.length} customization widgets");
     return customizationWidgets;
   }
 

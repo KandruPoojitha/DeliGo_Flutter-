@@ -103,16 +103,11 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
             
             if (selectedItems.isNotEmpty) {
               final optionId = customization['id'] ?? UniqueKey().toString();
-              // Create the nested structure with "0" key
               formattedCustomizations[optionId] = {
-                "0": {  // Add this extra nesting level
-                  'optionId': optionId,
-                  'optionName': customization['name'] ?? 'Unknown Option',
-                  'price': selectedItems.fold(0.0, (sum, item) => sum + (item['price'] ?? 0.0)),
-                  'selectedItems': {  // Make selectedItems a map with "0" key
-                    "0": selectedItems[0]  // Since we're handling single selection, take first item
-                  }
-                }
+                'optionId': optionId,
+                'optionName': customization['name'] ?? 'Unknown Option',
+                'price': selectedItems.fold(0.0, (sum, item) => sum + (item['price'] ?? 0.0)),
+                'selectedItems': selectedItems,
               };
             }
           }

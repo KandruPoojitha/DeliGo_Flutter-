@@ -142,36 +142,115 @@ class _CheckoutPageState extends State<CheckoutPage> {
                       final item = entry.value as Map;
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item['name'] ?? 'Unnamed Item',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item['name'] ?? 'Unnamed Item',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      Text(
+                                        'Quantity: ${item['quantity']}',
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  Text(
-                                    'Quantity: ${item['quantity']}',
-                                    style: const TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 12,
-                                    ),
+                                ),
+                                Text(
+                                  '\$${(item['totalPrice'] ?? 0.0).toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFF4A261),
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-                            Text(
-                              '\$${(item['totalPrice'] ?? 0.0).toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFF4A261),
+                            // Display customizations if they exist
+                            if (item['customizations'] != null && 
+                                item['customizations'] is Map && 
+                                (item['customizations'] as Map).isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.grey[300]!),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      "Customizations:",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    ...(item['customizations'] as Map).entries.map((customization) {
+                                      final optionName = customization.value['optionName'] as String?;
+                                      final selectedItems = customization.value['selectedItems'] as List?;
+                                      
+                                      if (optionName != null && selectedItems != null) {
+                                        return Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: selectedItems.map((selectedItem) {
+                                            if (selectedItem is Map) {
+                                              final itemName = selectedItem['name'] as String?;
+                                              final itemPrice = selectedItem['price'] as num?;
+                                              
+                                              if (itemName != null) {
+                                                return Padding(
+                                                  padding: const EdgeInsets.only(bottom: 4),
+                                                  child: Row(
+                                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          '$optionName: $itemName',
+                                                          style: const TextStyle(
+                                                            fontSize: 12,
+                                                            fontWeight: FontWeight.bold,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      if (itemPrice != null && itemPrice > 0)
+                                                        Text(
+                                                          '+\$${itemPrice.toStringAsFixed(2)}',
+                                                          style: const TextStyle(
+                                                            fontSize: 12,
+                                                            color: Color(0xFFF4A261),
+                                                            fontWeight: FontWeight.bold,
+                                                          ),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                            return const SizedBox.shrink();
+                                          }).toList(),
+                                        );
+                                      }
+                                      return const SizedBox.shrink();
+                                    }).toList(),
+                                  ],
+                                ),
                               ),
-                            ),
+                            ],
                           ],
                         ),
                       );
@@ -541,15 +620,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
         final customizations = item['customizations'];
         Map<String, dynamic> processedCustomizations = {};
         
-        if (customizations != null) {
-          for (var customization in customizations as List) {
-            final customId = const Uuid().v4().toUpperCase();
-            processedCustomizations[customId] = {
-              'optionId': customId,
-              'optionName': customization['optionName'],
-              'selectedItems': customization['selectedItems'] ?? [],
-            };
-          }
+        if (customizations != null && customizations is Map) {
+          // Keep the customizations as is since they're already in the correct format
+          processedCustomizations = Map<String, dynamic>.from(customizations);
         }
 
         return {
