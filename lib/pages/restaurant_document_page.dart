@@ -20,6 +20,8 @@ class _RestaurantDocumentPageState extends State<RestaurantDocumentPage> {
   final _restaurantService = RestaurantService();
   final _user = FirebaseAuth.instance.currentUser;
   final _addressController = TextEditingController();
+  final _minPriceController = TextEditingController(text: '10');
+  final _maxPriceController = TextEditingController(text: '50');
   
   File? _licenseImage;
   File? _ownerIdImage;
@@ -44,6 +46,8 @@ class _RestaurantDocumentPageState extends State<RestaurantDocumentPage> {
   @override
   void dispose() {
     _addressController.dispose();
+    _minPriceController.dispose();
+    _maxPriceController.dispose();
     super.dispose();
   }
 
@@ -193,6 +197,17 @@ class _RestaurantDocumentPageState extends State<RestaurantDocumentPage> {
       return;
     }
 
+    // Validate price range
+    final minPrice = double.tryParse(_minPriceController.text);
+    final maxPrice = double.tryParse(_maxPriceController.text);
+    
+    if (minPrice == null || maxPrice == null || minPrice >= maxPrice) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter valid price range (min must be less than max)')),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
@@ -229,10 +244,14 @@ class _RestaurantDocumentPageState extends State<RestaurantDocumentPage> {
       // Get existing store_info or create new one
       final existingStoreInfo = userDataMap['store_info'] as Map<dynamic, dynamic>? ?? {};
       
-      // Update store_info with new address while preserving other fields
+      // Update store_info with new address and price range while preserving other fields
       final updatedStoreInfo = {
         ...existingStoreInfo,
         'address': _selectedLocation!['address'],
+        'price_range': {
+          'min': minPrice,
+          'max': maxPrice,
+        },
       };
 
       // Update restaurant information
@@ -346,6 +365,67 @@ class _RestaurantDocumentPageState extends State<RestaurantDocumentPage> {
     );
   }
 
+  Widget _buildPriceRangeSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Price Range',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _minPriceController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Minimum Price (\$)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.attach_money),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter minimum price';
+                  }
+                  if (double.tryParse(value) == null) {
+                    return 'Please enter a valid number';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: TextFormField(
+                controller: _maxPriceController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Maximum Price (\$)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.attach_money),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter maximum price';
+                  }
+                  if (double.tryParse(value) == null) {
+                    return 'Please enter a valid number';
+                  }
+                  return null;
+                },
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -451,6 +531,10 @@ class _RestaurantDocumentPageState extends State<RestaurantDocumentPage> {
 
                     // Business Hours
                     _buildBusinessHoursSection(),
+                    const SizedBox(height: 32),
+
+                    // Price Range
+                    _buildPriceRangeSection(),
                     const SizedBox(height: 32),
 
                     // Submit Button

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/cart_service.dart';
+import 'restaurant_reviews_page.dart';
 
 class MenuItemDetailsDialog extends StatefulWidget {
   final Map<String, dynamic> item;
@@ -25,6 +26,17 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
   double basePrice = 0;
   double totalPrice = 0;
   Map<String, bool> selectedCustomizations = {};
+
+  String _getPriceRangeText(Map<String, dynamic> item) {
+    final price = item['price']?.toDouble() ?? 0.0;
+    String dollarSigns = '\$';
+    if (price > 30) {
+      dollarSigns = '\$\$\$';
+    } else if (price > 15) {
+      dollarSigns = '\$\$';
+    }
+    return '$dollarSigns \$${price.toStringAsFixed(2)}';
+  }
 
   @override
   void initState() {
@@ -337,17 +349,6 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
                     ),
                   const SizedBox(height: 8),
 
-                  // Description
-                  if (widget.item['description'] != null)
-                    Text(
-                      widget.item['description'],
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  const SizedBox(height: 16),
-
                   // Quantity Selector
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -550,6 +551,24 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
         SnackBar(content: Text('Error updating favorite: $e')),
       );
     }
+  }
+
+  String _getPriceRangeText(Map<dynamic, dynamic> storeInfo) {
+    final priceRange = storeInfo['price_range'] as Map?;
+    if (priceRange == null) return '\$\$ \$5-25'; // Default value
+    
+    final min = priceRange['min']?.toString() ?? '5';
+    final max = priceRange['max']?.toString() ?? '25';
+    
+    // Determine number of dollar signs based on max price
+    String dollarSigns = '\$';
+    if (double.parse(max) > 30) {
+      dollarSigns = '\$\$\$';
+    } else if (double.parse(max) > 15) {
+      dollarSigns = '\$\$';
+    }
+    
+    return '$dollarSigns \$$min-$max';
   }
 
   Widget _buildMenuItemCard(String itemId, Map<String, dynamic> item) {
@@ -799,6 +818,119 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 12),
+                      // Various and Price Range Row
+                      Row(
+                        children: [
+                          const Text(
+                            'Various',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          const Text(
+                            ' • ',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          Text(
+                            _getPriceRangeText(widget.restaurant['store_info'] ?? {}),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFFF4A261),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      // Rating and Reviews Row
+                      InkWell(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => RestaurantReviewsPage(
+                                restaurantId: widget.restaurantId,
+                                restaurantName: widget.restaurant['store_info']?['name'] ?? 'Restaurant',
+                              ),
+                            ),
+                          );
+                        },
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.star,
+                              color: Colors.amber,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 4),
+                            StreamBuilder(
+                              stream: FirebaseDatabase.instance
+                                  .ref()
+                                  .child('restaurants')
+                                  .child(widget.restaurantId)
+                                  .child('ratingsandcomments')
+                                  .child('rating')
+                                  .onValue,
+                              builder: (context, snapshot) {
+                                if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+                                  final ratings = snapshot.data!.snapshot.value as Map;
+                                  double totalRating = 0;
+                                  int count = 0;
+                                  
+                                  ratings.forEach((key, value) {
+                                    if (value is int) {
+                                      totalRating += value;
+                                      count++;
+                                    }
+                                  });
+                                  
+                                  final averageRating = count > 0 ? totalRating / count : 0.0;
+                                  
+                                  return Row(
+                                    children: [
+                                      Text(
+                                        '${averageRating.toStringAsFixed(1)} ',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      Text(
+                                        '(${count.toString()})',
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'View Reviews',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Color(0xFFF4A261),
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                }
+                                return const Text(
+                                  'No reviews yet',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey,
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),

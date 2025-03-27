@@ -25,6 +25,7 @@ class _CustomerPageState extends State<CustomerPage> {
   Position? _currentPosition;
   bool _isLoadingLocation = false;
   List<MapEntry> _filteredRestaurants = [];
+  String _sortBy = 'none';
 
   @override
   void initState() {
@@ -119,6 +120,33 @@ class _CustomerPageState extends State<CustomerPage> {
       return '${(distanceInKm * 1000).toStringAsFixed(0)}m away';
     }
     return '${distanceInKm.toStringAsFixed(1)}km away';
+  }
+
+  String _getPriceRangeValue(Map<dynamic, dynamic> storeInfo) {
+    final priceRange = storeInfo['price_range'] as Map?;
+    if (priceRange == null) return '25'; // Default max value
+    return (priceRange['max']?.toString() ?? '25');
+  }
+
+  void _sortRestaurantsByPrice(String order) {
+    setState(() {
+      _sortBy = order;
+      if (order == 'none') return;
+
+      _filteredRestaurants.sort((a, b) {
+        final restaurantA = a.value as Map;
+        final restaurantB = b.value as Map;
+        final storeInfoA = restaurantA['store_info'] as Map? ?? {};
+        final storeInfoB = restaurantB['store_info'] as Map? ?? {};
+        
+        final priceA = double.tryParse(_getPriceRangeValue(storeInfoA)) ?? 25;
+        final priceB = double.tryParse(_getPriceRangeValue(storeInfoB)) ?? 25;
+        
+        return order == 'lowToHigh' 
+            ? priceA.compareTo(priceB) 
+            : priceB.compareTo(priceA);
+      });
+    });
   }
 
   Future<void> _signOut(BuildContext context) async {
@@ -225,26 +253,73 @@ class _CustomerPageState extends State<CustomerPage> {
           ),
         ),
         const SizedBox(height: 8),
-        // Sort by Distance Button
+        // Sorting Options Row
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: _currentPosition != null
-                  ? () {
-                      setState(() {
-                        _sortRestaurantsByDistance();
-                      });
-                    }
-                  : null,
-              icon: const Icon(Icons.sort),
-              label: const Text('Sort by Distance (Nearest First)'),
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFFF4A261),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              // Sort by Distance Button
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: _currentPosition != null
+                      ? () {
+                          setState(() {
+                            _sortBy = 'distance';
+                            _sortRestaurantsByDistance();
+                          });
+                        }
+                      : null,
+                  icon: const Icon(Icons.sort),
+                  label: const Text('Sort by Distance'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: _sortBy == 'distance' 
+                        ? const Color(0xFFF4A261) 
+                        : Colors.grey,
+                  ),
+                ),
               ),
-            ),
+              // Sort by Price Range Button
+              TextButton.icon(
+                onPressed: () {
+                  showMenu(
+                    context: context,
+                    position: RelativeRect.fromLTRB(
+                      MediaQuery.of(context).size.width - 100,
+                      kToolbarHeight + 100,
+                      20,
+                      0,
+                    ),
+                    items: [
+                      const PopupMenuItem(
+                        value: 'none',
+                        child: Text('Default Order'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'lowToHigh',
+                        child: Text('Price: Low to High'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'highToLow',
+                        child: Text('Price: High to Low'),
+                      ),
+                    ],
+                  ).then((value) {
+                    if (value != null) {
+                      _sortRestaurantsByPrice(value);
+                    }
+                  });
+                },
+                icon: const Icon(Icons.sort),
+                label: Text(
+                  'Price Range',
+                  style: TextStyle(
+                    color: _sortBy == 'lowToHigh' || _sortBy == 'highToLow'
+                        ? const Color(0xFFF4A261)
+                        : Colors.grey,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         // Restaurant List
@@ -378,12 +453,43 @@ class _CustomerPageState extends State<CustomerPage> {
                       title: Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              storeInfo['name'] ?? 'Unnamed Restaurant',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  storeInfo['name'] ?? 'Unnamed Restaurant',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Various',
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const Text(
+                                      ' • ',
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    Text(
+                                      _getPriceRangeText(storeInfo),
+                                      style: const TextStyle(
+                                        color: Color(0xFFF4A261),
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
                           if (!_isLoadingLocation) ...[
@@ -402,22 +508,60 @@ class _CustomerPageState extends State<CustomerPage> {
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.star,
-                                size: 16,
-                                color: Colors.amber[700],
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${(storeInfo['rating'] ?? 0.0).toStringAsFixed(1)}',
-                                style: TextStyle(
-                                  color: Colors.grey[700],
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
+                          StreamBuilder(
+                            stream: FirebaseDatabase.instance
+                                .ref()
+                                .child('restaurants')
+                                .child(entry.key)
+                                .child('ratingsandcomments')
+                                .child('rating')
+                                .onValue,
+                            builder: (context, snapshot) {
+                              double rating = 0.0;
+                              int reviewCount = 0;
+                              
+                              if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+                                final ratings = snapshot.data!.snapshot.value as Map;
+                                double totalRating = 0;
+                                
+                                ratings.forEach((key, value) {
+                                  if (value is int) {
+                                    totalRating += value;
+                                    reviewCount++;
+                                  }
+                                });
+                                
+                                if (reviewCount > 0) {
+                                  rating = totalRating / reviewCount;
+                                }
+                              }
+                              
+                              return Row(
+                                children: [
+                                  const Icon(
+                                    Icons.star,
+                                    size: 16,
+                                    color: Colors.amber,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    rating.toStringAsFixed(1),
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '($reviewCount)',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                           ),
                           const SizedBox(height: 4),
                           Row(
@@ -1547,12 +1691,13 @@ class _CustomerPageState extends State<CustomerPage> {
       // Create the ratings path if it doesn't exist
       final ratingsRef = restaurantRef.child('ratingsandcomments');
       
-      // Add the rating and comment
+      // Add the rating, comment, and timestamp
       if (comment.isNotEmpty) {
         await ratingsRef.child('comment').child(customerId).set(comment);
       }
       
       await ratingsRef.child('rating').child(customerId).set(rating);
+      await ratingsRef.child('timestamp').child(customerId).set(ServerValue.timestamp);
       
       // Update the average rating for the restaurant
       final ratingSnapshot = await ratingsRef.child('rating').get();
@@ -1985,6 +2130,24 @@ class _CustomerPageState extends State<CustomerPage> {
         ],
       ),
     );
+  }
+
+  String _getPriceRangeText(Map<dynamic, dynamic> storeInfo) {
+    final priceRange = storeInfo['price_range'] as Map?;
+    if (priceRange == null) return '\$\$ \$5-25'; // Default value
+    
+    final min = priceRange['min']?.toString() ?? '5';
+    final max = priceRange['max']?.toString() ?? '25';
+    
+    // Determine number of dollar signs based on max price
+    String dollarSigns = '\$';
+    if (double.parse(max) > 30) {
+      dollarSigns = '\$\$\$';
+    } else if (double.parse(max) > 15) {
+      dollarSigns = '\$\$';
+    }
+    
+    return '$dollarSigns \$$min-$max';
   }
 
   @override
