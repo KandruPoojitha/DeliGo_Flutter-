@@ -7,6 +7,7 @@ import 'restaurant_details_page.dart';
 import 'checkout_page.dart';
 import 'support_chat_detail.dart';
 import 'edit_customer_profile_page.dart';
+import 'receipt_screen.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -1157,6 +1158,38 @@ class _CustomerPageState extends State<CustomerPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    if (isPastOrders && orderStatus == 'delivered')
+                      IconButton(
+                        icon: const Icon(Icons.receipt_long),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ReceiptScreen(
+                                orderData: {
+                                  'orderId': orderId.toString(),
+                                  'items': List<Map<String, dynamic>>.from(
+                                    (items).map((item) => {
+                                      'name': (item as Map)['name']?.toString() ?? '',
+                                      'quantity': (item['quantity'] as num?)?.toInt() ?? 1,
+                                      'price': (item['price'] as num?)?.toDouble() ?? 0.0,
+                                    }),
+                                  ),
+                                  'subtotal': subtotal,
+                                  'deliveryFee': deliveryFee,
+                                  'total': total,
+                                  'createdAt': order['createdAt']?.toString() ?? '',
+                                  'deliveryAddress': addressText,
+                                  'restaurantName': restaurantName,
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                        tooltip: 'View Receipt',
+                        color: const Color(0xFFF4A261),
+                      ),
                     const SizedBox(width: 8),
                     _buildStatusChip(orderStatus ?? 'unknown'),
                   ],
