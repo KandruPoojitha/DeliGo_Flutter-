@@ -8,6 +8,8 @@ import 'package:firebase_database/firebase_database.dart';
 import '../pages/chat/user_chat_page.dart';
 import '../pages/login_page.dart';
 import '../pages/edit_driver_profile_page.dart';
+import '../pages/tip_history_screen.dart';
+import '../pages/earnings_screen.dart';
 
 class DriverPage extends StatefulWidget {
   const DriverPage({super.key});
@@ -503,60 +505,179 @@ class _DriverPageState extends State<DriverPage> {
               ),
             ),
           ),
-          
-        // Available Orders Section
-        Expanded(
-          child: StreamBuilder<DatabaseEvent>(
-                    stream: FirebaseDatabase.instance
-                        .ref()
-                        .child('orders')
-                        .orderByChild('driverId')
-                        .equalTo(_user!.uid)
-                        .onValue,
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError) {
-                return Center(child: Text('Error: ${snapshot.error}'));
-                      }
-                      
-                      if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
-                        return const Center(
-                          child: Text(
-                    'No available orders',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        );
-                      }
-                      
-                      try {
-                final data = snapshot.data!.snapshot.value;
-                if (data == null) {
-                  return const Center(
-                    child: Text(
-                      'No available orders',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  );
+
+          // Today's Stats Card
+          StreamBuilder<DatabaseEvent>(
+            stream: FirebaseDatabase.instance
+                .ref()
+                .child('orders')
+                .orderByChild('driverId')
+                .equalTo(_user!.uid)
+                .onValue,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const Center(child: Text('Error loading stats'));
+              }
+
+              if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
+                return _buildEmptyStatsCard();
+              }
+
+              try {
+                final data = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                final now = DateTime.now();
+                final today = DateTime(now.year, now.month, now.day);
+
+                // Filter today's delivered orders
+                final todayOrders = data.entries.where((entry) {
+                  final order = entry.value as Map<dynamic, dynamic>;
+                  if (order['order_status'] != 'delivered') return false;
+
+                  // Parse the delivery timestamp
+                  final deliveryTime = order['deliveredAt'] ?? order['updatedAt'] ?? '';
+                  if (deliveryTime.toString().isEmpty) return false;
+
+                  DateTime? deliveryDate;
+                  try {
+                    if (deliveryTime.toString().isNotEmpty && RegExp(r'^\d+$').hasMatch(deliveryTime.toString())) {
+                      deliveryDate = DateTime.fromMillisecondsSinceEpoch(int.parse(deliveryTime.toString()));
+                    } else {
+                      deliveryDate = DateTime.parse(deliveryTime.toString());
+                    }
+                    return deliveryDate.isAfter(today.subtract(const Duration(seconds: 1)));
+                  } catch (e) {
+                    return false;
+                  }
+                }).toList();
+
+                // Calculate totals
+                double totalDeliveryFees = 0.0;
+                double totalTips = 0.0;
+                int deliveriesCount = todayOrders.length;
+
+                for (var order in todayOrders) {
+                  final orderData = order.value as Map<dynamic, dynamic>;
+                  final deliveryFee = (orderData['deliveryFee'] as num?)?.toDouble() ?? 0.0;
+                  final tipAmount = (orderData['tipAmount'] as num?)?.toDouble() ?? 0.0;
+                  
+                  totalDeliveryFees += deliveryFee;
+                  totalTips += tipAmount;
                 }
 
-                final ordersData = data as Map<dynamic, dynamic>;
-                final availableOrders = ordersData.entries
-                    .where((entry) {
-                      final order = entry.value as Map<dynamic, dynamic>;
-                      final orderStatus = order['order_status'] as String?;
-                      final driverId = order['driverId'] as String?;
-                      // Show both assigned and accepted orders
-                      return (orderStatus == 'assigned_driver' || orderStatus == 'driver_accepted') && 
-                             driverId == _user!.uid;
-                    })
-                    .toList();
+                final totalEarnings = totalDeliveryFees + totalTips;
 
-                if (availableOrders.isEmpty) {
+                return Card(
+                  margin: const EdgeInsets.all(16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  color: const Color(0xFFFFF8F0),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Today',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '\$${totalEarnings.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFF4A261),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Delivery Fees',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Text(
+                                  '\$${totalDeliveryFees.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Tips',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Text(
+                                  '\$${totalTips.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Deliveries',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Text(
+                                  '$deliveriesCount',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              } catch (e) {
+                return _buildEmptyStatsCard();
+              }
+            },
+          ),
+
+          // Available Orders Section
+          Expanded(
+            child: StreamBuilder<DatabaseEvent>(
+                      stream: FirebaseDatabase.instance
+                          .ref()
+                          .child('orders')
+                          .orderByChild('driverId')
+                          .equalTo(_user!.uid)
+                          .onValue,
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                        }
+                        
+                        if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
                           return const Center(
                             child: Text(
                       'No available orders',
@@ -568,30 +689,96 @@ class _DriverPageState extends State<DriverPage> {
                           );
                         }
                         
-                        return ListView.builder(
-                  itemCount: availableOrders.length,
-                          itemBuilder: (context, index) {
-                    final order = availableOrders[index].value as Map<dynamic, dynamic>;
-                    final orderId = availableOrders[index].key as String;
-                    final customerName = order['customerName'] as String? ?? 'Unknown Customer';
-                    final customerPhone = order['customerPhone'] as String? ?? '';
-                    final totalAmount = (order['total'] as num?)?.toDouble() ?? 0.0;
-                    final address = order['address'] as Map<dynamic, dynamic>?;
-                    final street = address?['street'] as String? ?? 'No address provided';
-                    final restaurantId = order['restaurantId'] as String?;
+                        try {
+                  final data = snapshot.data!.snapshot.value;
+                  if (data == null) {
+                    return const Center(
+                      child: Text(
+                        'No available orders',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    );
+                  }
 
-                    return FutureBuilder<DatabaseEvent>(
-                      future: FirebaseDatabase.instance
-                          .ref()
-                          .child('restaurants')
-                          .child(restaurantId ?? '')
-                          .once(),
-                      builder: (context, restaurantSnapshot) {
-                        if (restaurantSnapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
+                  final ordersData = data as Map<dynamic, dynamic>;
+                  final availableOrders = ordersData.entries
+                      .where((entry) {
+                        final order = entry.value as Map<dynamic, dynamic>;
+                        final orderStatus = order['order_status'] as String?;
+                        final driverId = order['driverId'] as String?;
+                        // Show both assigned and accepted orders
+                        return (orderStatus == 'assigned_driver' || orderStatus == 'driver_accepted') && 
+                               driverId == _user!.uid;
+                      })
+                      .toList();
 
-                        if (restaurantSnapshot.hasError || !restaurantSnapshot.hasData) {
+                  if (availableOrders.isEmpty) {
+                            return const Center(
+                              child: Text(
+                        'No available orders',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            );
+                          }
+                          
+                          return ListView.builder(
+                    itemCount: availableOrders.length,
+                            itemBuilder: (context, index) {
+                      final order = availableOrders[index].value as Map<dynamic, dynamic>;
+                      final orderId = availableOrders[index].key as String;
+                      final customerName = order['customerName'] as String? ?? 'Unknown Customer';
+                      final customerPhone = order['customerPhone'] as String? ?? '';
+                      final totalAmount = (order['total'] as num?)?.toDouble() ?? 0.0;
+                      final address = order['address'] as Map<dynamic, dynamic>?;
+                      final street = address?['street'] as String? ?? 'No address provided';
+                      final restaurantId = order['restaurantId'] as String?;
+
+                      return FutureBuilder<DatabaseEvent>(
+                        future: FirebaseDatabase.instance
+                            .ref()
+                            .child('restaurants')
+                            .child(restaurantId ?? '')
+                            .once(),
+                        builder: (context, restaurantSnapshot) {
+                          if (restaurantSnapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
+
+                          if (restaurantSnapshot.hasError || !restaurantSnapshot.hasData) {
+                            return Card(
+                              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Error loading restaurant info'),
+                                    const SizedBox(height: 8),
+                                    Text('Customer: $customerName'),
+                                    Text('Phone: $customerPhone'),
+                                    Text('Address: $street'),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+
+                          final restaurantData = restaurantSnapshot.data!.snapshot.value as Map<dynamic, dynamic>?;
+                          final restaurantName = restaurantData?['restaurantName'] as String? ?? 'Unknown Restaurant';
+                          final restaurantPhone = restaurantData?['phone'] as String? ?? 'No phone provided';
+                          final restaurantAddress = restaurantData?['address'] as Map<dynamic, dynamic>?;
+                          final restaurantStreet = restaurantAddress?['street'] as String? ?? 'No restaurant address provided';
+                          final restaurantCity = restaurantAddress?['city'] as String? ?? '';
+                          final restaurantState = restaurantAddress?['state'] as String? ?? '';
+                          final restaurantZip = restaurantAddress?['zip'] as String? ?? '';
+                          final fullRestaurantAddress = '$restaurantStreet, $restaurantCity, $restaurantState $restaurantZip';
+
                           return Card(
                             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             child: Padding(
@@ -599,126 +786,192 @@ class _DriverPageState extends State<DriverPage> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('Error loading restaurant info'),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          'Order #$orderId',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        '\$${totalAmount.toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                          color: Color(0xFFF4A261),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                   const SizedBox(height: 8),
                                   Text('Customer: $customerName'),
                                   Text('Phone: $customerPhone'),
-                                  Text('Address: $street'),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Restaurant Details:',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFFF4A261),
+                                    ),
+                                  ),
+                                  Text('ID: $restaurantId'),
+                                  Text('Name: $restaurantName'),
+                                  Text('Phone: $restaurantPhone'),
+                                  Text('Address: $fullRestaurantAddress'),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Delivery Address:',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFFF4A261),
+                                    ),
+                                  ),
+                                  Text(street),
+                                  const SizedBox(height: 16),
+                                  if (order['order_status'] == 'assigned_driver')
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFFF4A261),
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        onPressed: () => _acceptOrder(orderId),
+                                        child: const Text('Accept Order'),
+                                      ),
+                                    ),
+                                  if (order['order_status'] == 'driver_accepted') ...[
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.orange,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        onPressed: () => _markAsPickedUp(orderId),
+                                        child: const Text('Mark as Picked Up'),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
                           );
+                                },
+                              );
+                            },
+                          );
+                        } catch (e) {
+                          return Center(
+                            child: Text('Error loading orders: $e'),
+                          );
                         }
+                      },
+                    ),
+          ),
+        ],
+      );
+  }
 
-                        final restaurantData = restaurantSnapshot.data!.snapshot.value as Map<dynamic, dynamic>?;
-                        final restaurantName = restaurantData?['restaurantName'] as String? ?? 'Unknown Restaurant';
-                        final restaurantPhone = restaurantData?['phone'] as String? ?? 'No phone provided';
-                        final restaurantAddress = restaurantData?['address'] as Map<dynamic, dynamic>?;
-                        final restaurantStreet = restaurantAddress?['street'] as String? ?? 'No restaurant address provided';
-                        final restaurantCity = restaurantAddress?['city'] as String? ?? '';
-                        final restaurantState = restaurantAddress?['state'] as String? ?? '';
-                        final restaurantZip = restaurantAddress?['zip'] as String? ?? '';
-                        final fullRestaurantAddress = '$restaurantStreet, $restaurantCity, $restaurantState $restaurantZip';
-
-                        return Card(
-                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        'Order #$orderId',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '\$${totalAmount.toStringAsFixed(2)}',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                        color: Color(0xFFF4A261),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text('Customer: $customerName'),
-                                Text('Phone: $customerPhone'),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  'Restaurant Details:',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFF4A261),
-                                  ),
-                                ),
-                                Text('ID: $restaurantId'),
-                                Text('Name: $restaurantName'),
-                                Text('Phone: $restaurantPhone'),
-                                Text('Address: $fullRestaurantAddress'),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  'Delivery Address:',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFF4A261),
-                                  ),
-                                ),
-                                Text(street),
-                                const SizedBox(height: 16),
-                                if (order['order_status'] == 'assigned_driver')
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFFF4A261),
-                                        foregroundColor: Colors.white,
-                                      ),
-                                      onPressed: () => _acceptOrder(orderId),
-                                      child: const Text('Accept Order'),
-                                    ),
-                                  ),
-                                if (order['order_status'] == 'driver_accepted') ...[
-                                  const SizedBox(height: 8),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.orange,
-                                        foregroundColor: Colors.white,
-                                      ),
-                                      onPressed: () => _markAsPickedUp(orderId),
-                                      child: const Text('Mark as Picked Up'),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        );
-                              },
-                            );
-                          },
-                        );
-                      } catch (e) {
-                        return Center(
-                          child: Text('Error loading orders: $e'),
-                        );
-                      }
-                    },
-                  ),
+  Widget _buildEmptyStatsCard() {
+    return Card(
+      margin: const EdgeInsets.all(16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      color: const Color(0xFFFFF8F0),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Today',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '\$0.00',
+              style: TextStyle(
+                fontSize: 36,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFF4A261),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'Delivery Fees',
+                      style: TextStyle(
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      '\$0.00',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'Tips',
+                      style: TextStyle(
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      '\$0.00',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'Deliveries',
+                      style: TextStyle(
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      '0',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -1485,7 +1738,7 @@ class _DriverPageState extends State<DriverPage> {
           _buildProfileSection(),
           const SizedBox(height: 16),
           
-          // Working Hours Section
+          // Earnings and Tips Section
           Card(
             margin: const EdgeInsets.symmetric(horizontal: 16),
             child: Padding(
@@ -1494,62 +1747,94 @@ class _DriverPageState extends State<DriverPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Working Hours',
+                    'Financial Overview',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Start Time',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            TextButton.icon(
-                              onPressed: () => _selectTime(context, true),
-                              icon: const Icon(Icons.access_time),
-                              label: Text(_startTime.format(context)),
-                            ),
-                          ],
+                  
+                  // Tip History
+                  InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const TipHistoryScreen(),
                         ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.monetization_on,
+                            color: Color(0xFFF4A261),
+                          ),
+                          const SizedBox(width: 16),
+                          const Text(
+                            'Tip History',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const Spacer(),
+                          const Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                        ],
                       ),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'End Time',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            TextButton.icon(
-                              onPressed: () => _selectTime(context, false),
-                              icon: const Icon(Icons.access_time),
-                              label: Text(_endTime.format(context)),
-                            ),
-                          ],
+                    ),
+                  ),
+                  const Divider(),
+                  
+                  // Earnings
+                  InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const EarningsScreen(),
                         ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.account_balance_wallet,
+                            color: Color(0xFFF4A261),
+                          ),
+                          const SizedBox(width: 16),
+                          const Text(
+                            'Earnings',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const Spacer(),
+                          const Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 16),
-
+          
           // Support Section
           Card(
             margin: const EdgeInsets.symmetric(horizontal: 16),
