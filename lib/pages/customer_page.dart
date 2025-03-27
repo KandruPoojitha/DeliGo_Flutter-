@@ -980,8 +980,789 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Widget _buildOrdersTab() {
+    return StreamBuilder<DatabaseEvent>(
+      stream: FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .orderByChild('customerId')
+          .equalTo(FirebaseAuth.instance.currentUser?.uid)
+          .onValue,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+        
+        if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
     return const Center(
-      child: Text('Orders Tab'),
+            child: Text(
+              'No orders',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
+            ),
+          );
+        }
+        
+        try {
+          final data = snapshot.data!.snapshot.value;
+          if (data == null) {
+            return const Center(
+              child: Text(
+                'No orders',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey,
+                ),
+              ),
+            );
+          }
+          
+          final ordersData = data as Map<dynamic, dynamic>;
+          final allOrders = ordersData.entries.toList();
+          
+          return DefaultTabController(
+            length: 2,
+            child: Column(
+              children: [
+                const TabBar(
+                  tabs: [
+                    Tab(text: 'Current'),
+                    Tab(text: 'Past'),
+                  ],
+                  labelColor: Colors.black,
+                  indicatorColor: Color(0xFFF4A261),
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _buildOrdersList(
+                        allOrders.where((entry) {
+                          final order = entry.value as Map<dynamic, dynamic>;
+                          final orderStatus = order['order_status'] as String?;
+                          return orderStatus != 'delivered';
+                        }).toList(),
+                        'No current orders',
+                      ),
+                      _buildOrdersList(
+                        allOrders.where((entry) {
+                          final order = entry.value as Map<dynamic, dynamic>;
+                          final orderStatus = order['order_status'] as String?;
+                          return orderStatus == 'delivered';
+                        }).toList(),
+                        'No past orders',
+                        isPastOrders: true,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        } catch (e) {
+          return Center(
+            child: Text('Error loading orders: $e'),
+          );
+        }
+      },
+    );
+  }
+
+  Widget _buildOrdersList(List<MapEntry> orders, String emptyMessage, {bool isPastOrders = false}) {
+    if (orders.isEmpty) {
+      return Center(
+        child: Text(
+          emptyMessage,
+          style: const TextStyle(
+            fontSize: 16,
+            color: Colors.grey,
+          ),
+        ),
+      );
+    }
+
+    if (isPastOrders) {
+      // Sort past orders by date (newest first)
+      orders.sort((a, b) {
+        final orderA = a.value as Map<dynamic, dynamic>;
+        final orderB = b.value as Map<dynamic, dynamic>;
+        final dateA = orderA['updatedAt'];
+        final dateB = orderB['updatedAt'];
+        
+        // Handle both int and String timestamps
+        final aTime = dateA is int ? dateA : (dateA is String ? DateTime.parse(dateA).millisecondsSinceEpoch : 0);
+        final bTime = dateB is int ? dateB : (dateB is String ? DateTime.parse(dateB).millisecondsSinceEpoch : 0);
+        
+        return bTime.compareTo(aTime);
+      });
+    }
+    
+    return ListView.builder(
+      padding: const EdgeInsets.all(16.0),
+      itemCount: orders.length,
+      itemBuilder: (context, index) {
+        final order = orders[index].value as Map<dynamic, dynamic>;
+        final orderId = orders[index].key as String;
+        final orderStatus = order['order_status'] as String?;
+        final items = order['items'] as List<dynamic>? ?? [];
+        final subtotal = (order['subtotal'] as num?)?.toDouble() ?? 0.0;
+        final deliveryFee = (order['deliveryFee'] as num?)?.toDouble() ?? 0.0;
+        final total = (order['total'] as num?)?.toDouble() ?? 0.0;
+        final driverId = order['driverId'] as String?;
+        final restaurantId = order['restaurantId'] as String?;
+        final restaurantName = order['restaurantName'] as String? ?? 'Restaurant';
+        final hasRatedDriver = order['hasRatedDriver'] == true;
+        final hasRatedRestaurant = order['hasRatedRestaurant'] == true;
+        
+        // Get the nested address structure
+        final addressData = order['address'] as Map<dynamic, dynamic>?;
+        String addressText = 'No delivery address';
+        String? instructions;
+        
+        if (addressData != null) {
+          final street = addressData['street'] as String?;
+          final unit = addressData['unit'] as String?;
+          instructions = addressData['instructions'] as String?;
+          
+          if (street != null) {
+            if (unit != null && unit.isNotEmpty) {
+              addressText = "Unit $unit, $street";
+            } else {
+              addressText = street;
+            }
+          }
+        }
+        
+        return Card(
+          margin: const EdgeInsets.only(bottom: 16.0),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Order #$orderId',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildStatusChip(orderStatus ?? 'unknown'),
+                  ],
+                ),
+                const Divider(),
+                // Delivery Address
+                Row(
+                  children: [
+                    const Icon(Icons.location_on, size: 16, color: Color(0xFFF4A261)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        addressText,
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+                if (instructions != null && instructions.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.note, size: 16, color: Color(0xFFF4A261)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Instructions: $instructions",
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                // Restaurant Rating Section - Only show for delivered orders
+                if (isPastOrders && restaurantId != null && orderStatus == 'delivered') ...[
+                  const Divider(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Restaurant Rating',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      hasRatedRestaurant
+                        ? const Text(
+                            'Thank you for rating!',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontStyle: FontStyle.italic,
+                              fontSize: 12,
+                            ),
+                          )
+                        : ElevatedButton(
+                            onPressed: () {
+                              _showRateRestaurantDialog(
+                                context, 
+                                restaurantId, 
+                                restaurantName, 
+                                orderId
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFF4A261),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              textStyle: const TextStyle(fontSize: 12),
+                            ),
+                            child: const Text('Rate Restaurant'),
+                          ),
+                    ],
+                  ),
+                ],
+                // Driver Details (for past orders)
+                if (isPastOrders && driverId != null) ...[
+                  const Divider(),
+                  const Text(
+                    'Delivery Driver',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  StreamBuilder<DatabaseEvent>(
+                    stream: FirebaseDatabase.instance
+                        .ref()
+                        .child('drivers')
+                        .child(driverId)
+                        .onValue,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: SizedBox(
+                            height: 20, 
+                            width: 20, 
+                            child: CircularProgressIndicator(strokeWidth: 2)
+                          )
+                        );
+                      }
+                      
+                      if (snapshot.hasError || !snapshot.hasData || snapshot.data?.snapshot.value == null) {
+                        return const Text('Driver information not available');
+                      }
+                      
+                      final driverData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                      final driverName = driverData['fullName'] ?? 'Unknown Driver';
+                      final driverPhone = driverData['phone'] ?? 'No phone';
+                      final driverEmail = driverData['email'] ?? 'No email';
+                      final driverProfilePic = driverData['profilePicture'] as String?;
+                      
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 50,
+                                height: 50,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.grey[200],
+                                  image: driverProfilePic != null && driverProfilePic.isNotEmpty
+                                    ? DecorationImage(
+                                        image: NetworkImage(driverProfilePic),
+                                        fit: BoxFit.cover,
+                                      )
+                                    : null,
+                                ),
+                                child: driverProfilePic == null || driverProfilePic.isEmpty
+                                  ? const Icon(Icons.person, color: Colors.grey, size: 30)
+                                  : null,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      driverName,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    if (driverPhone != 'No phone')
+                                      Text(
+                                        driverPhone,
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          
+                          // Rating Section - Only show for delivered orders and if not yet rated
+                          if (orderStatus == 'delivered') ...[
+                            const SizedBox(height: 12),
+                            hasRatedDriver
+                              ? const Text(
+                                  'Thank you for rating this driver!',
+                                  style: TextStyle(
+                                    color: Colors.green,
+                                    fontStyle: FontStyle.italic,
+                                    fontSize: 12,
+                                  ),
+                                )
+                              : ElevatedButton(
+                                  onPressed: () {
+                                    _showRateDriverDialog(
+                                      context, 
+                                      driverId, 
+                                      driverName, 
+                                      orderId
+                                    );
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFF4A261),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  child: const Text('Rate Driver'),
+                                ),
+                          ],
+                        ],
+                      );
+                    },
+                  ),
+                ],
+                const Divider(),
+                // Order Items
+                const Text(
+                  'Order Items',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...items.map((item) {
+                  if (item is! Map<dynamic, dynamic>) return const SizedBox.shrink();
+                  
+                  final quantity = item['quantity'] as int? ?? 1;
+                  final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+                  final name = item['name'] as String? ?? 'Unknown Item';
+                  
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '$name x$quantity',
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        ),
+                        Text(
+                          '\$${(price * quantity).toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                const Divider(),
+                // Pricing Summary
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Subtotal'),
+                    Text('\$${subtotal.toStringAsFixed(2)}'),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Delivery Fee'),
+                    Text('\$${deliveryFee.toStringAsFixed(2)}'),
+                  ],
+                ),
+                const Divider(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Total',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      '\$${total.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Color(0xFFF4A261),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Method to show rate restaurant dialog
+  void _showRateRestaurantDialog(BuildContext context, String restaurantId, String restaurantName, String orderId) {
+    int rating = 5;
+    final commentController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: Text('Rate $restaurantName'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('How was your dining experience?'),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (index) {
+                    return IconButton(
+                      icon: Icon(
+                        index < rating ? Icons.star : Icons.star_border,
+                        color: index < rating ? Colors.amber : Colors.grey,
+                        size: 32,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          rating = index + 1;
+                        });
+                      },
+                    );
+                  }),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: commentController,
+                  decoration: const InputDecoration(
+                    labelText: 'Comments (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  _submitRestaurantRating(restaurantId, rating, commentController.text, orderId);
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF4A261),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Submit'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // Method to submit restaurant rating to Firebase
+  Future<void> _submitRestaurantRating(String restaurantId, int rating, String comment, String orderId) async {
+    try {
+      final customerId = FirebaseAuth.instance.currentUser?.uid;
+      
+      if (customerId == null) {
+        throw Exception('User not logged in');
+      }
+      
+      // Update the ratings and comments in the restaurant document
+      final restaurantRef = FirebaseDatabase.instance.ref().child('restaurants').child(restaurantId);
+      
+      // Create the ratings path if it doesn't exist
+      final ratingsRef = restaurantRef.child('ratingsandcomments');
+      
+      // Add the rating and comment
+      if (comment.isNotEmpty) {
+        await ratingsRef.child('comment').child(customerId).set(comment);
+      }
+      
+      await ratingsRef.child('rating').child(customerId).set(rating);
+      
+      // Update the average rating for the restaurant
+      final ratingSnapshot = await ratingsRef.child('rating').get();
+      if (ratingSnapshot.exists) {
+        final ratingsData = ratingSnapshot.value as Map<dynamic, dynamic>;
+        double totalRating = 0;
+        int count = 0;
+        
+        ratingsData.forEach((key, value) {
+          if (value is int) {
+            totalRating += value;
+            count++;
+          }
+        });
+        
+        if (count > 0) {
+          double averageRating = totalRating / count;
+          await restaurantRef.child('store_info').child('rating').set(averageRating);
+        }
+      }
+      
+      // Mark the order as restaurant rated
+      await FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .child(orderId)
+          .update({'hasRatedRestaurant': true});
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Thank you for rating the restaurant!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error submitting rating: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Method to show rate driver dialog
+  void _showRateDriverDialog(BuildContext context, String driverId, String driverName, String orderId) {
+    int rating = 5;
+    final commentController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: Text('Rate $driverName'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('How was your delivery experience?'),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (index) {
+                    return IconButton(
+                      icon: Icon(
+                        index < rating ? Icons.star : Icons.star_border,
+                        color: index < rating ? Colors.amber : Colors.grey,
+                        size: 32,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          rating = index + 1;
+                        });
+                      },
+                    );
+                  }),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: commentController,
+                  decoration: const InputDecoration(
+                    labelText: 'Comments (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  _submitDriverRating(driverId, rating, commentController.text, orderId);
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF4A261),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Submit'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // Update the existing method to mark orders as driver rated
+  Future<void> _submitDriverRating(String driverId, int rating, String comment, String orderId) async {
+    try {
+      final customerId = FirebaseAuth.instance.currentUser?.uid;
+      
+      if (customerId == null) {
+        throw Exception('User not logged in');
+      }
+      
+      // Update the ratings and comments in the driver document
+      final driverRef = FirebaseDatabase.instance.ref().child('drivers').child(driverId);
+      
+      // Create the ratings path if it doesn't exist
+      final ratingsRef = driverRef.child('ratingsandcomments');
+      
+      // Add the rating and comment
+      if (comment.isNotEmpty) {
+        await ratingsRef.child('comment').child(customerId).set(comment);
+      }
+      
+      await ratingsRef.child('rating').child(customerId).set(rating);
+      
+      // Update the average rating for the driver
+      final ratingSnapshot = await ratingsRef.child('rating').get();
+      if (ratingSnapshot.exists) {
+        final ratingsData = ratingSnapshot.value as Map<dynamic, dynamic>;
+        double totalRating = 0;
+        int count = 0;
+        
+        ratingsData.forEach((key, value) {
+          if (value is int) {
+            totalRating += value;
+            count++;
+          }
+        });
+        
+        if (count > 0) {
+          double averageRating = totalRating / count;
+          await driverRef.child('rating').set(averageRating);
+        }
+      }
+      
+      // Mark the order as driver rated
+      await FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .child(orderId)
+          .update({'hasRatedDriver': true});
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Thank you for rating your driver!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error submitting rating: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildStatusChip(String status) {
+    Color color;
+    String label;
+    
+    switch (status) {
+      case 'pending':
+        color = Colors.orange;
+        label = 'Pending';
+        break;
+      case 'accepted':
+        color = Colors.blue;
+        label = 'Accepted';
+        break;
+      case 'ready_for_pickup':
+        color = Colors.purple;
+        label = 'Ready for Pickup';
+        break;
+      case 'assigned_driver':
+        color = Colors.indigo;
+        label = 'Assigned to Driver';
+        break;
+      case 'driver_accepted':
+        color = Colors.blue;
+        label = 'Driver Accepted';
+        break;
+      case 'picked_up':
+        color = Colors.orange;
+        label = 'Picked Up';
+        break;
+      case 'delivered':
+        color = Colors.green;
+        label = 'Delivered';
+        break;
+      case 'cancelled':
+        color = Colors.red;
+        label = 'Cancelled';
+        break;
+      default:
+        color = Colors.grey;
+        label = 'Unknown';
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+        ),
+      ),
     );
   }
 

@@ -21,9 +21,9 @@ class _DriverPageState extends State<DriverPage> {
   final _driverService = DriverService();
   final _user = FirebaseAuth.instance.currentUser;
   
-  // Add a stream controller for orders
-  final StreamController<DatabaseEvent> _ordersStreamController = StreamController<DatabaseEvent>.broadcast();
-  Stream<DatabaseEvent>? _ordersStream;
+  // Separate streams for current and past orders
+  Stream<DatabaseEvent>? _currentOrdersStream;
+  Stream<DatabaseEvent>? _pastOrdersStream;
   
   File? _licenseImage;
   File? _govtIdImage;
@@ -42,7 +42,7 @@ class _DriverPageState extends State<DriverPage> {
     super.initState();
     _checkDriverStatus();
     _loadDriverStats();
-    _setupOrdersStream();
+    _setupOrdersStreams();
     
     // Force check approval status after a delay
     Future.delayed(const Duration(seconds: 2), () {
@@ -52,15 +52,20 @@ class _DriverPageState extends State<DriverPage> {
   
   @override
   void dispose() {
-    // Dispose the stream controller
-    _ordersStreamController.close();
     super.dispose();
   }
   
-  void _setupOrdersStream() {
+  void _setupOrdersStreams() {
     if (_user != null) {
-      // Create a stream for orders assigned to the current driver
-      _ordersStream = FirebaseDatabase.instance
+      // Create separate streams for current and past orders
+      _currentOrdersStream = FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .orderByChild('driverId')
+          .equalTo(_user!.uid)
+          .onValue;
+          
+      _pastOrdersStream = FirebaseDatabase.instance
           .ref()
           .child('orders')
           .orderByChild('driverId')
@@ -505,8 +510,8 @@ class _DriverPageState extends State<DriverPage> {
                     stream: FirebaseDatabase.instance
                         .ref()
                         .child('orders')
-                .orderByChild('order_status')
-                .equalTo('assigned_driver')
+                        .orderByChild('driverId')
+                        .equalTo(_user!.uid)
                         .onValue,
                     builder: (context, snapshot) {
                       if (snapshot.hasError) {
@@ -545,7 +550,9 @@ class _DriverPageState extends State<DriverPage> {
                       final order = entry.value as Map<dynamic, dynamic>;
                       final orderStatus = order['order_status'] as String?;
                       final driverId = order['driverId'] as String?;
-                      return orderStatus == 'assigned_driver' && driverId == _user!.uid;
+                      // Show both assigned and accepted orders
+                      return (orderStatus == 'assigned_driver' || orderStatus == 'driver_accepted') && 
+                             driverId == _user!.uid;
                     })
                     .toList();
 
@@ -669,17 +676,32 @@ class _DriverPageState extends State<DriverPage> {
                                 ),
                                 Text(street),
                                 const SizedBox(height: 16),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFFF4A261),
-                                      foregroundColor: Colors.white,
+                                if (order['order_status'] == 'assigned_driver')
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFF4A261),
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () => _acceptOrder(orderId),
+                                      child: const Text('Accept Order'),
                                     ),
-                                    onPressed: () => _acceptOrder(orderId),
-                                    child: const Text('Accept Order'),
                                   ),
-                                ),
+                                if (order['order_status'] == 'driver_accepted') ...[
+                                  const SizedBox(height: 8),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.orange,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () => _markAsPickedUp(orderId),
+                                      child: const Text('Mark as Picked Up'),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -704,8 +726,20 @@ class _DriverPageState extends State<DriverPage> {
     try {
       setState(() => _isLoading = true);
       
-      final driverData = await _driverService.getDriver(_user!.uid);
-      if (driverData == null) throw Exception('Driver data not found');
+      // Get driver data directly from Firebase
+      final driverSnapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('drivers')
+          .child(_user!.uid)
+          .get();
+          
+      if (!driverSnapshot.exists) {
+        throw Exception('Driver data not found');
+      }
+      
+      final driverData = driverSnapshot.value as Map<dynamic, dynamic>;
+      final driverName = driverData['fullName'] as String? ?? 'Unknown Driver';
+      final driverPhone = driverData['phone'] as String? ?? '';
 
       await FirebaseDatabase.instance
           .ref()
@@ -713,8 +747,8 @@ class _DriverPageState extends State<DriverPage> {
           .child(orderId)
           .update({
         'driverId': _user!.uid,
-        'driverName': driverData.fullName,
-        'driverPhone': driverData.phone,
+        'driverName': driverName,
+        'driverPhone': driverPhone,
         'status': 'in_progress',
         'order_status': 'driver_accepted',
         'acceptedAt': ServerValue.timestamp,
@@ -733,6 +767,42 @@ class _DriverPageState extends State<DriverPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error accepting order: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _markAsPickedUp(String orderId) async {
+    try {
+      setState(() => _isLoading = true);
+      
+      await FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .child(orderId)
+          .update({
+        'status': 'in_progress',
+        'order_status': 'picked_up',
+        'pickedUpAt': ServerValue.timestamp,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Order marked as picked up'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error marking order as picked up: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -958,7 +1028,7 @@ class _DriverPageState extends State<DriverPage> {
   }
   
   Widget _buildCurrentOrdersTab() {
-    if (_ordersStream == null) {
+    if (_currentOrdersStream == null) {
       return const Center(
         child: Text(
           'No orders data available',
@@ -971,7 +1041,7 @@ class _DriverPageState extends State<DriverPage> {
     }
     
     return StreamBuilder<DatabaseEvent>(
-      stream: _ordersStream,
+      stream: _currentOrdersStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -1157,7 +1227,7 @@ class _DriverPageState extends State<DriverPage> {
   }
   
   Widget _buildPastOrdersTab() {
-    if (_ordersStream == null) {
+    if (_pastOrdersStream == null) {
       return const Center(
         child: Text(
           'No orders data available',
@@ -1170,7 +1240,7 @@ class _DriverPageState extends State<DriverPage> {
     }
     
     return StreamBuilder<DatabaseEvent>(
-      stream: _ordersStream,
+      stream: _pastOrdersStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
