@@ -63,7 +63,7 @@ class DriverService {
   Future<void> updateDriverStatus(
     String uid, {
     bool? isOnline,
-    bool? availableForOrders,
+    bool? isAvailable,
     String? status,
   }) async {
     try {
@@ -74,8 +74,8 @@ class DriverService {
       if (isOnline != null) {
         updates['isOnline'] = isOnline;
       }
-      if (availableForOrders != null) {
-        updates['availableForOrders'] = availableForOrders;
+      if (isAvailable != null) {
+        updates['isAvailable'] = isAvailable;
       }
       if (status != null) {
         updates['status'] = status;

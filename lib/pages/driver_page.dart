@@ -32,7 +32,7 @@ class _DriverPageState extends State<DriverPage> {
   bool _isLoading = false;
   bool _isApproved = false;
   bool _isOnline = false;
-  bool _isAvailableForOrders = true;
+  bool _isAvailable = true;
   int _selectedIndex = 0;
   int _deliveriesCount = 0;
   double _earnings = 0.0;
@@ -90,7 +90,7 @@ class _DriverPageState extends State<DriverPage> {
             
             // Also check if the driver is online
             _isOnline = driver.isOnline ?? false;
-            _isAvailableForOrders = driver.availableForOrders ?? true;
+            _isAvailable = driver.isAvailable ?? true;
             
             if (driver.hours != null) {
               try {
@@ -203,7 +203,7 @@ class _DriverPageState extends State<DriverPage> {
   Future<void> _toggleAvailability() async {
     if (_user != null) {
       setState(() {
-        _isAvailableForOrders = !_isAvailableForOrders;
+        _isAvailable = !_isAvailable;
       });
       
       try {
@@ -212,12 +212,12 @@ class _DriverPageState extends State<DriverPage> {
             .child('drivers')
             .child(_user!.uid)
             .update({
-          'availableForOrders': _isAvailableForOrders,
+          'isAvailable': _isAvailable,
           'updatedAt': DateTime.now().toIso8601String(),
         });
       } catch (e) {
         setState(() {
-          _isAvailableForOrders = !_isAvailableForOrders; // Revert on error
+          _isAvailable = !_isAvailable; // Revert on error
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -481,19 +481,19 @@ class _DriverPageState extends State<DriverPage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Available for Orders: ${_isAvailableForOrders ? 'Yes' : 'No'}',
+                        'Available for Orders: ${_isAvailable ? 'Yes' : 'No'}',
                         style: TextStyle(
-                          color: _isAvailableForOrders ? Colors.green : Colors.red,
+                          color: _isAvailable ? Colors.green : Colors.red,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       Switch(
-                        value: _isAvailableForOrders,
+                        value: _isAvailable,
                         onChanged: _isOnline ? (value) async {
-                          setState(() => _isAvailableForOrders = value);
+                          setState(() => _isAvailable = value);
                           await _driverService.updateDriverStatus(
                             _user!.uid,
-                            availableForOrders: value,
+                            isAvailable: value,
                           );
                         } : null,
                         activeColor: Colors.green,
@@ -770,14 +770,15 @@ class _DriverPageState extends State<DriverPage> {
                           }
 
                           final restaurantData = restaurantSnapshot.data!.snapshot.value as Map<dynamic, dynamic>?;
-                          final restaurantName = restaurantData?['restaurantName'] as String? ?? 'Unknown Restaurant';
-                          final restaurantPhone = restaurantData?['phone'] as String? ?? 'No phone provided';
-                          final restaurantAddress = restaurantData?['address'] as Map<dynamic, dynamic>?;
-                          final restaurantStreet = restaurantAddress?['street'] as String? ?? 'No restaurant address provided';
-                          final restaurantCity = restaurantAddress?['city'] as String? ?? '';
-                          final restaurantState = restaurantAddress?['state'] as String? ?? '';
-                          final restaurantZip = restaurantAddress?['zip'] as String? ?? '';
-                          final fullRestaurantAddress = '$restaurantStreet, $restaurantCity, $restaurantState $restaurantZip';
+                          
+                          // Get store_info data
+                          final storeInfo = restaurantData?['store_info'] as Map<dynamic, dynamic>?;
+                          
+                          // Get restaurant details from store_info
+                          final restaurantName = storeInfo?['name'] as String? ?? 'Unknown Restaurant';
+                          final restaurantPhone = storeInfo?['phone'] as String? ?? 'No phone provided';
+                          final restaurantAddress = storeInfo?['address'] as String? ?? 'No restaurant address provided';
+                          final restaurantDescription = storeInfo?['description'] as String? ?? '';
 
                           return Card(
                             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -821,10 +822,9 @@ class _DriverPageState extends State<DriverPage> {
                                       color: Color(0xFFF4A261),
                                     ),
                                   ),
-                                  Text('ID: $restaurantId'),
                                   Text('Name: $restaurantName'),
                                   Text('Phone: $restaurantPhone'),
-                                  Text('Address: $fullRestaurantAddress'),
+                                  Text('Address: $restaurantAddress'),
                                   const SizedBox(height: 8),
                                   const Text(
                                     'Delivery Address:',
@@ -836,16 +836,30 @@ class _DriverPageState extends State<DriverPage> {
                                   Text(street),
                                   const SizedBox(height: 16),
                                   if (order['order_status'] == 'assigned_driver')
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFFF4A261),
-                                          foregroundColor: Colors.white,
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: ElevatedButton(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(0xFFF4A261),
+                                              foregroundColor: Colors.white,
+                                            ),
+                                            onPressed: () => _acceptOrder(orderId),
+                                            child: const Text('Accept Order'),
+                                          ),
                                         ),
-                                        onPressed: () => _acceptOrder(orderId),
-                                        child: const Text('Accept Order'),
-                                      ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: ElevatedButton(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.red,
+                                              foregroundColor: Colors.white,
+                                            ),
+                                            onPressed: () => _rejectOrder(orderId),
+                                            child: const Text('Reject Order'),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   if (order['order_status'] == 'driver_accepted') ...[
                                     const SizedBox(height: 8),
@@ -994,17 +1008,36 @@ class _DriverPageState extends State<DriverPage> {
       final driverName = driverData['fullName'] as String? ?? 'Unknown Driver';
       final driverPhone = driverData['phone'] as String? ?? '';
 
-      await FirebaseDatabase.instance
-          .ref()
-          .child('orders')
-          .child(orderId)
-          .update({
-        'driverId': _user!.uid,
-        'driverName': driverName,
-        'driverPhone': driverPhone,
-        'status': 'in_progress',
-        'order_status': 'driver_accepted',
-        'acceptedAt': ServerValue.timestamp,
+      // Update both the order and driver status
+      await Future.wait([
+        // Update order status
+        FirebaseDatabase.instance
+            .ref()
+            .child('orders')
+            .child(orderId)
+            .update({
+          'driverId': _user!.uid,
+          'driverName': driverName,
+          'driverPhone': driverPhone,
+          'status': 'in_progress',
+          'order_status': 'driver_accepted',
+          'acceptedAt': ServerValue.timestamp,
+        }),
+        
+        // Update driver availability
+        FirebaseDatabase.instance
+            .ref()
+            .child('drivers')
+            .child(_user!.uid)
+            .update({
+          'isAvailable': false,
+          'updatedAt': ServerValue.timestamp,
+        }),
+      ]);
+
+      // Update local state
+      setState(() {
+        _isAvailable = false;
       });
 
       if (mounted) {
@@ -1020,6 +1053,63 @@ class _DriverPageState extends State<DriverPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error accepting order: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _rejectOrder(String orderId) async {
+    try {
+      setState(() => _isLoading = true);
+      
+      // Update both order status and driver availability
+      await Future.wait([
+        // Update order status and remove driver information
+        FirebaseDatabase.instance
+            .ref()
+            .child('orders')
+            .child(orderId)
+            .update({
+          'order_status': 'ready_for_pickup',
+          'driverId': null,
+          'driverName': null,
+          'driverPhone': null,
+          'updatedAt': ServerValue.timestamp,
+        }),
+        
+        // Update driver availability to true
+        FirebaseDatabase.instance
+            .ref()
+            .child('drivers')
+            .child(_user!.uid)
+            .update({
+          'isAvailable': true,
+          'updatedAt': ServerValue.timestamp,
+        }),
+      ]);
+
+      // Update local state
+      setState(() {
+        _isAvailable = true;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Order rejected successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error rejecting order: $e'),
             backgroundColor: Colors.red,
           ),
         );

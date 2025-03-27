@@ -11,7 +11,7 @@ class Driver {
   final String createdAt;
   final String? updatedAt;
   final bool? isOnline;
-  final bool? availableForOrders;
+  final bool? isAvailable;
 
   Driver({
     required this.uid,
@@ -26,7 +26,7 @@ class Driver {
     required this.createdAt,
     this.updatedAt,
     this.isOnline,
-    this.availableForOrders,
+    this.isAvailable,
   });
 
   bool get isApproved => status == 'approved';
@@ -45,7 +45,7 @@ class Driver {
       createdAt: json['createdAt'] ?? '',
       updatedAt: json['updatedAt'],
       isOnline: json['isOnline'],
-      availableForOrders: json['availableForOrders'],
+      isAvailable: json['isAvailable'],
     );
   }
 
@@ -63,7 +63,7 @@ class Driver {
       'createdAt': createdAt,
       'updatedAt': updatedAt,
       'isOnline': isOnline,
-      'availableForOrders': availableForOrders,
+      'isAvailable': isAvailable,
     };
   }
   
