@@ -8,6 +8,8 @@ import 'checkout_page.dart';
 import 'support_chat_detail.dart';
 import 'edit_customer_profile_page.dart';
 import 'receipt_screen.dart';
+import 'order_chat_page.dart';
+import '../widgets/unread_message_count.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -1304,35 +1306,70 @@ class _CustomerPageState extends State<CustomerPage> {
                     ),
                     const SizedBox(width: 8),
                     if (isPastOrders && orderStatus == 'delivered')
-                      IconButton(
-                        icon: const Icon(Icons.receipt_long),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ReceiptScreen(
-                                orderData: {
-                                  'orderId': orderId.toString(),
-                                  'items': List<Map<String, dynamic>>.from(
-                                    (items).map((item) => {
-                                      'name': (item as Map)['name']?.toString() ?? '',
-                                      'quantity': (item['quantity'] as num?)?.toInt() ?? 1,
-                                      'price': (item['price'] as num?)?.toDouble() ?? 0.0,
-                                    }),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.receipt_long),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ReceiptScreen(
+                                    orderData: {
+                                      'orderId': orderId.toString(),
+                                      'items': List<Map<String, dynamic>>.from(
+                                        (items).map((item) => {
+                                          'name': (item as Map)['name']?.toString() ?? '',
+                                          'quantity': (item['quantity'] as num?)?.toInt() ?? 1,
+                                          'price': (item['price'] as num?)?.toDouble() ?? 0.0,
+                                        }),
+                                      ),
+                                      'subtotal': subtotal,
+                                      'deliveryFee': deliveryFee,
+                                      'total': total,
+                                      'createdAt': order['createdAt']?.toString() ?? '',
+                                      'deliveryAddress': addressText,
+                                      'restaurantName': restaurantName,
+                                    },
                                   ),
-                                  'subtotal': subtotal,
-                                  'deliveryFee': deliveryFee,
-                                  'total': total,
-                                  'createdAt': order['createdAt']?.toString() ?? '',
-                                  'deliveryAddress': addressText,
-                                  'restaurantName': restaurantName,
+                                ),
+                              );
+                            },
+                            tooltip: 'View Receipt',
+                            color: const Color(0xFFF4A261),
+                          ),
+                          Stack(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.chat),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => OrderChatPage(
+                                        orderId: orderId,
+                                        restaurantId: restaurantId ?? '',
+                                        restaurantName: restaurantName,
+                                        customerName: order['customerName'] ?? FirebaseAuth.instance.currentUser?.displayName ?? 'Customer',
+                                        userType: 'customer',
+                                      ),
+                                    ),
+                                  );
                                 },
+                                tooltip: 'Chat with Restaurant',
+                                color: const Color(0xFFF4A261),
                               ),
-                            ),
-                          );
-                        },
-                        tooltip: 'View Receipt',
-                        color: const Color(0xFFF4A261),
+                              Positioned(
+                                right: 5,
+                                top: 5,
+                                child: UnreadMessageCount(
+                                  orderId: orderId,
+                                  userType: 'customer',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     const SizedBox(width: 8),
                     _buildStatusChip(orderStatus ?? 'unknown'),

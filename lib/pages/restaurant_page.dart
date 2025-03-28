@@ -17,6 +17,8 @@ import 'dart:math';
 import '../pages/admin/chat_management/admin_chat_page.dart';
 import '../pages/restaurant_chat_page.dart';
 import 'edit_store_info_page.dart';
+import 'order_chat_page.dart';
+import '../widgets/unread_message_count.dart';
 
 class RestaurantPage extends StatefulWidget {
   const RestaurantPage({super.key});
@@ -824,20 +826,72 @@ class _RestaurantPageState extends State<RestaurantPage> {
                         ],
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF4A261).withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        status,
-                        style: TextStyle(
-                          color: const Color(0xFFF4A261),
-                          fontWeight: FontWeight.bold,
+                    if (order['order_status'] != null) 
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4A261).withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          order['order_status'].toString().replaceAll('_', ' ').toUpperCase(),
+                          style: const TextStyle(
+                            color: Color(0xFFF4A261),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4A261).withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          status,
+                          style: TextStyle(
+                            color: const Color(0xFFF4A261),
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                    ),
+                    if (order['order_status'] == 'delivered') 
+                      Stack(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.chat, size: 20),
+                            onPressed: () {
+                              final customerId = order['customerId'] ?? order['userId'] ?? '';
+                              final customerName = order['customerName'] ?? 'Customer';
+                              
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => OrderChatPage(
+                                    orderId: orderId,
+                                    restaurantId: _user?.uid ?? '',
+                                    restaurantName: _nameController.text.isNotEmpty ? _nameController.text : 'Restaurant',
+                                    customerName: customerName,
+                                    userType: 'restaurant',
+                                  ),
+                                ),
+                              );
+                            },
+                            tooltip: 'Chat with Customer',
+                            color: const Color(0xFFF4A261),
+                          ),
+                          Positioned(
+                            right: 0,
+                            top: 0,
+                            child: UnreadMessageCount(
+                              orderId: orderId,
+                              userType: 'restaurant',
+                            ),
+                          ),
+                        ],
+                      ),
                     if (tip > 0) ...[
                       const SizedBox(width: 8),
                       Container(
@@ -1112,7 +1166,9 @@ class _RestaurantPageState extends State<RestaurantPage> {
                       ),
                     ],
                   ),
-                if (status == 'in_progress' && (order['order_status'] == 'driver_assigned' || order['order_status'] == 'assigned_driver'))
+                if (status == 'in_progress' && 
+                    (order['order_status'] == 'driver_assigned' || order['order_status'] == 'assigned_driver') &&
+                    !(order['order_status'] == 'assigned_driver' && deliveryOption == 'Delivery'))
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
