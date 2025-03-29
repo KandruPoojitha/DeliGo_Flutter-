@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../services/admin_service.dart';
+import 'support/support_chat_page.dart';
 
 class ChatManagementScreen extends StatefulWidget {
   const ChatManagementScreen({Key? key}) : super(key: key);
@@ -37,76 +38,96 @@ class _ChatManagementScreenState extends State<ChatManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Chat Management'),
-        backgroundColor: Theme.of(context).primaryColor,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: _showFilterOptions,
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Chat Management'),
+          backgroundColor: Theme.of(context).primaryColor,
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'User Chats'),
+              Tab(text: 'Support Chats'),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadChats,
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _chats.isEmpty
-              ? const Center(child: Text('No chats found'))
-              : ListView.builder(
-                  itemCount: _chats.length,
-                  itemBuilder: (context, index) {
-                    final chat = _chats[index];
-                    final isBlocked = chat['status'] == 'blocked';
-                    final isReported = chat['isReported'] == true;
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.filter_list),
+              onPressed: _showFilterOptions,
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _loadChats,
+            ),
+          ],
+        ),
+        body: TabBarView(
+          children: [
+            // User Chats Tab
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _chats.isEmpty
+                    ? const Center(child: Text('No chats found'))
+                    : ListView.builder(
+                        itemCount: _chats.length,
+                        itemBuilder: (context, index) {
+                          final chat = _chats[index];
+                          final isBlocked = chat['status'] == 'blocked';
+                          final isReported = chat['isReported'] == true;
 
-                    return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: ListTile(
-                        title: Text('${chat['user1Name']} - ${chat['user2Name']}'),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(chat['lastMessage'] ?? 'No messages'),
-                            Row(
-                              children: [
-                                if (isBlocked)
-                                  _buildStatusChip('Blocked', Colors.red),
-                                if (isReported)
-                                  _buildStatusChip('Reported', Colors.orange),
-                              ],
-                            ),
-                          ],
-                        ),
-                        trailing: PopupMenuButton<String>(
-                          onSelected: (value) => _handleChatAction(value, chat),
-                          itemBuilder: (BuildContext context) => [
-                            const PopupMenuItem(
-                              value: 'view',
-                              child: Text('View Chat'),
-                            ),
-                            if (isReported)
-                              const PopupMenuItem(
-                                value: 'reports',
-                                child: Text('View Reports'),
+                          return Card(
+                            margin: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            child: ListTile(
+                              title: Text(
+                                  '${chat['user1Name']} - ${chat['user2Name']}'),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(chat['lastMessage'] ?? 'No messages'),
+                                  Row(
+                                    children: [
+                                      if (isBlocked)
+                                        _buildStatusChip('Blocked', Colors.red),
+                                      if (isReported)
+                                        _buildStatusChip('Reported', Colors.orange),
+                                    ],
+                                  ),
+                                ],
                               ),
-                            PopupMenuItem(
-                              value: isBlocked ? 'unblock' : 'block',
-                              child: Text(isBlocked ? 'Unblock Chat' : 'Block Chat'),
+                              trailing: PopupMenuButton<String>(
+                                onSelected: (value) =>
+                                    _handleChatAction(value, chat),
+                                itemBuilder: (BuildContext context) => [
+                                  const PopupMenuItem(
+                                    value: 'view',
+                                    child: Text('View Chat'),
+                                  ),
+                                  if (isReported)
+                                    const PopupMenuItem(
+                                      value: 'reports',
+                                      child: Text('View Reports'),
+                                    ),
+                                  PopupMenuItem(
+                                    value: isBlocked ? 'unblock' : 'block',
+                                    child: Text(
+                                        isBlocked ? 'Unblock Chat' : 'Block Chat'),
+                                  ),
+                                  const PopupMenuItem(
+                                    value: 'delete',
+                                    child: Text('Delete Chat'),
+                                  ),
+                                ],
+                              ),
                             ),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Text('Delete Chat'),
-                            ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
+            // Support Chats Tab
+            const SupportChatPage(),
+          ],
+        ),
+      ),
     );
   }
 

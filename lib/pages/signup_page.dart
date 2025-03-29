@@ -1,6 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'driver_page.dart';
+import 'restaurant_document_page.dart';
+import 'customer_page.dart';
 
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
@@ -22,6 +26,14 @@ class _SignupPageState extends State<SignupPage> {
   final _phoneController = TextEditingController();
 
   bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
+
+  // Regular expressions for validation
+  final _nameRegex = RegExp(r'^[a-zA-Z\s]{2,}$');
+  final _emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+  final _phoneRegex = RegExp(r'^[0-9]{10}$');
+  final _passwordRegex = RegExp(r'^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$');
 
   @override
   void dispose() {
@@ -31,6 +43,56 @@ class _SignupPageState extends State<SignupPage> {
     _confirmPasswordController.dispose();
     _phoneController.dispose();
     super.dispose();
+  }
+
+  String? _validateFullName(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter your full name';
+    }
+    // if (!_nameRegex.hasMatch(value)) {
+    //   return 'Please enter a valid name (letters and spaces only, minimum 2 characters)';
+    // }
+    return null;
+  }
+
+  String? _validateEmail(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter your email';
+    }
+    if (!_emailRegex.hasMatch(value)) {
+      return 'Please enter a valid email address';
+    }
+    return null;
+  }
+
+  String? _validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter a password';
+    }
+    // if (!_passwordRegex.hasMatch(value)) {
+    //   return 'Password must be at least 8 characters and contain at least one letter and one number';
+    // }
+    return null;
+  }
+
+  String? _validateConfirmPassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please confirm your password';
+    }
+    if (value != _passwordController.text) {
+      return 'Passwords do not match';
+    }
+    return null;
+  }
+
+  String? _validatePhone(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter your phone number';
+    }
+    if (!_phoneRegex.hasMatch(value)) {
+      return 'Phone number must be exactly 10 digits';
+    }
+    return null;
   }
 
   Future<void> _signUp() async {
@@ -44,25 +106,96 @@ class _SignupPageState extends State<SignupPage> {
           password: _passwordController.text,
         );
 
-        // Prepare user data
+        // Get current timestamp in milliseconds
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+        // Prepare user data with role
         final userData = {
-          'fullName': _fullNameController.text,
-          'email': _emailController.text,
-          'phone': _phoneController.text,
+          'fullName': _fullNameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'phone': _phoneController.text.trim(),
           'role': _selectedRole,
+          'createdAt': timestamp,
         };
 
         // Save user data to Realtime Database under the appropriate collection
-        await _database
-            .child('${_selectedRole.toLowerCase()}s')
-            .child(userCredential.user!.uid)
-            .set(userData);
+        if (_selectedRole == 'Driver') {
+          await _database
+              .child('drivers')
+              .child(userCredential.user!.uid)
+              .set({
+            ...userData,
+            'documentsSubmitted': false,
+            'documents': {
+              'status': 'pending_review',
+              'createdAt': timestamp,
+            },
+          });
 
-        if (mounted) {
-          Navigator.pop(context); // Return to login page
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Account created successfully!')),
-          );
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const DriverPage(),
+              ),
+            );
+          }
+        } else if (_selectedRole == 'Restaurant') {
+          await _database
+              .child('restaurants')
+              .child(userCredential.user!.uid)
+              .set({
+            'role': _selectedRole,
+            'createdAt': timestamp,
+            'documentsSubmitted': false,
+            'documents': {
+              'status': 'pending_review',
+              'createdAt': timestamp,
+            },
+            'store_info': {
+              'name': _fullNameController.text.trim(),
+              'email': _emailController.text.trim(),
+              'phone': _phoneController.text.trim(),
+              'rating': 0,
+              'address': '',
+            },
+            'isOpen': false,
+            'hours': {
+              'opening': '',
+              'closing': '',
+            },
+          });
+
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const RestaurantDocumentPage(),
+              ),
+            );
+          }
+        } else if (_selectedRole == 'Customer') {
+          await _database
+              .child('customers')
+              .child(userCredential.user!.uid)
+              .set({
+            ...userData,
+            'status': 'active',
+            'favorites': {},
+            'cart': {},
+            'orders': {},
+            'address': '',
+            'blockedAt': null,
+          });
+
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const CustomerPage(),
+              ),
+            );
+          }
         }
       } on FirebaseAuthException catch (e) {
         String message;
@@ -81,13 +214,19 @@ class _SignupPageState extends State<SignupPage> {
         }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(message)),
+            SnackBar(
+              content: Text(message),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: ${e.toString()}')),
+            SnackBar(
+              content: Text('Error: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       } finally {
@@ -124,6 +263,7 @@ class _SignupPageState extends State<SignupPage> {
                   DropdownButtonFormField<String>(
                     value: _selectedRole,
                     decoration: InputDecoration(
+                      labelText: 'Select Role',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(4),
                       ),
@@ -146,59 +286,68 @@ class _SignupPageState extends State<SignupPage> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Common Fields
+                  // Full Name
                   _buildTextField(
                     controller: _fullNameController,
                     label: 'Full Name',
-                    validator: (value) =>
-                        value?.isEmpty == true ? 'Please enter your name' : null,
+                    prefixIcon: Icons.person,
+                    validator: _validateFullName,
                   ),
+
+                  // Email
                   _buildTextField(
                     controller: _emailController,
                     label: 'Email',
+                    prefixIcon: Icons.email,
                     keyboardType: TextInputType.emailAddress,
-                    validator: (value) {
-                      if (value?.isEmpty == true) {
-                        return 'Please enter your email';
-                      }
-                      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                          .hasMatch(value!)) {
-                        return 'Please enter a valid email';
-                      }
-                      return null;
-                    },
+                    validator: _validateEmail,
                   ),
+
+                  // Password
                   _buildTextField(
                     controller: _passwordController,
                     label: 'Password',
-                    obscureText: true,
-                    validator: (value) {
-                      if (value?.isEmpty == true) {
-                        return 'Please enter a password';
-                      }
-                      if (value!.length < 6) {
-                        return 'Password must be at least 6 characters';
-                      }
-                      return null;
-                    },
+                    prefixIcon: Icons.lock,
+                    obscureText: _obscurePassword,
+                    validator: _validatePassword,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                        });
+                      },
+                    ),
                   ),
+
+                  // Confirm Password
                   _buildTextField(
                     controller: _confirmPasswordController,
                     label: 'Confirm Password',
-                    obscureText: true,
-                    validator: (value) {
-                      if (value != _passwordController.text) {
-                        return 'Passwords do not match';
-                      }
-                      return null;
-                    },
+                    prefixIcon: Icons.lock_outline,
+                    obscureText: _obscureConfirmPassword,
+                    validator: _validateConfirmPassword,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscureConfirmPassword ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscureConfirmPassword = !_obscureConfirmPassword;
+                        });
+                      },
+                    ),
                   ),
+
+                  // Phone
                   _buildTextField(
                     controller: _phoneController,
                     label: 'Phone Number',
+                    prefixIcon: Icons.phone,
                     keyboardType: TextInputType.phone,
-                    validator: (value) =>
-                        value?.isEmpty == true ? 'Please enter your phone number' : null,
+                    validator: _validatePhone,
                   ),
 
                   const SizedBox(height: 20),
@@ -210,10 +359,21 @@ class _SignupPageState extends State<SignupPage> {
                       backgroundColor: const Color(0xFFF4A261),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 15),
+                      disabledBackgroundColor: Colors.grey,
                     ),
                     child: _isLoading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text('Sign Up', style: TextStyle(fontSize: 16)),
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Sign Up',
+                            style: TextStyle(fontSize: 16),
+                          ),
                   ),
 
                   // Login Link
@@ -238,30 +398,40 @@ class _SignupPageState extends State<SignupPage> {
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
+    required IconData prefixIcon,
     bool obscureText = false,
     TextInputType? keyboardType,
     String? Function(String?)? validator,
+    Widget? suffixIcon,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.grey),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: TextFormField(
-          controller: controller,
-          obscureText: obscureText,
-          keyboardType: keyboardType,
-          decoration: InputDecoration(
-            hintText: label,
-            border: InputBorder.none,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      padding: const EdgeInsets.only(bottom: 16),
+      child: TextFormField(
+        controller: controller,
+        obscureText: obscureText,
+        keyboardType: keyboardType,
+        inputFormatters: keyboardType == TextInputType.phone
+            ? [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(10),
+              ]
+            : null,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(prefixIcon),
+          suffixIcon: suffixIcon,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(4),
           ),
-          validator: validator,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 10,
+          ),
+          helperText: keyboardType == TextInputType.phone
+              ? 'Enter exactly 10 digits'
+              : null,
         ),
+        validator: validator,
       ),
     );
   }
