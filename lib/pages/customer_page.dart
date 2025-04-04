@@ -11,6 +11,7 @@ import 'edit_customer_profile_page.dart';
 import 'receipt_screen.dart';
 import 'order_chat_page.dart';
 import '../widgets/unread_message_count.dart';
+import '../services/notification_service.dart';
 // import 'package:share_plus/share_plus.dart';
 
 class CustomerPage extends StatefulWidget {
@@ -30,17 +31,55 @@ class _CustomerPageState extends State<CustomerPage> {
   bool _isLoadingLocation = false;
   List<MapEntry> _filteredRestaurants = [];
   String _sortBy = 'none';
+  final _notificationService = NotificationService();
 
   @override
   void initState() {
     super.initState();
     _getCurrentLocation();
+    _setupOrderStatusListeners();
+    _listenForNewOrders();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _notificationService.cancelAllOrderStatusListeners();
     super.dispose();
+  }
+
+  Future<void> _setupOrderStatusListeners() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    try {
+      final ordersSnapshot = await _database
+          .ref()
+          .child('orders')
+          .orderByChild('customerId')
+          .equalTo(userId)
+          .get();
+
+      if (!ordersSnapshot.exists) return;
+
+      final orders = ordersSnapshot.value as Map<dynamic, dynamic>;
+      for (final entry in orders.entries) {
+        final order = entry.value as Map<dynamic, dynamic>;
+        final orderId = entry.key as String;
+        final orderStatus = order['order_status'] as String?;
+
+        // Only set up listeners for pending orders
+        if (orderStatus == 'pending') {
+          _notificationService.listenForOrderStatusChanges(
+            orderId: orderId,
+            userId: userId,
+            context: context,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error setting up order status listeners: $e');
+    }
   }
 
   Future<void> _getCurrentLocation() async {
@@ -1256,6 +1295,27 @@ class _CustomerPageState extends State<CustomerPage> {
       );
     }
 
+    // Set up notifications for pending orders
+    if (!isPastOrders) {
+      final userId = _auth.currentUser?.uid;
+      if (userId != null) {
+        for (final entry in orders) {
+          final order = entry.value as Map<dynamic, dynamic>;
+          final orderId = entry.key as String;
+          final orderStatus = order['order_status'] as String?;
+          
+          // Only set up listeners for pending orders
+          if (orderStatus == 'pending') {
+            _notificationService.listenForOrderStatusChanges(
+              orderId: orderId,
+              userId: userId,
+              context: context,
+            );
+          }
+        }
+      }
+    }
+
     if (isPastOrders) {
       // Sort past orders by date (newest first)
       orders.sort((a, b) {
@@ -1424,6 +1484,91 @@ class _CustomerPageState extends State<CustomerPage> {
                           "Instructions: $instructions",
                           style: const TextStyle(fontSize: 14),
                         ),
+                      ),
+                    ],
+                  ),
+                ],
+                
+                // Driver chat option for picked_up orders
+                if (!isPastOrders && orderStatus == 'picked_up' && driverId != null) ...[
+                  const Divider(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      StreamBuilder<DatabaseEvent>(
+                        stream: FirebaseDatabase.instance
+                            .ref()
+                            .child('drivers')
+                            .child(driverId)
+                            .onValue,
+                        builder: (context, snapshot) {
+                          String driverName = 'Driver';
+                          
+                          if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+                            final driverData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                            driverName = driverData['fullName'] ?? 'Driver';
+                          }
+                          
+                          return ElevatedButton.icon(
+                            icon: StreamBuilder<DatabaseEvent>(
+                              stream: FirebaseDatabase.instance
+                                  .ref()
+                                  .child('orders')
+                                  .child(orderId)
+                                  .child('driver_customer_messages')
+                                  .onValue,
+                              builder: (context, snapshot) {
+                                int messageCount = 0;
+                                if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+                                  final data = snapshot.data!.snapshot.value as Map<dynamic, dynamic>?;
+                                  if (data != null) {
+                                    messageCount = data.length;
+                                  }
+                                }
+                                
+                                return Stack(
+                                  children: [
+                                    const Icon(Icons.delivery_dining),
+                                    if (messageCount > 0)
+                                      Positioned(
+                                        right: -2,
+                                        top: -2,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red,
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 14,
+                                            minHeight: 14,
+                                          ),
+                                          child: Text(
+                                            messageCount.toString(),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 8,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                );
+                              },
+                            ),
+                            label: Text('Chat with $driverName'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () => _openChatWithDriver(
+                              orderId,
+                              driverId,
+                              driverName,
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -2224,22 +2369,21 @@ class _CustomerPageState extends State<CustomerPage> {
 
   Widget _buildInfoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          SizedBox(
-            width: 120,
-            child: Text(
+          Text(
               label,
               style: const TextStyle(
-                fontWeight: FontWeight.bold,
                 color: Colors.grey,
               ),
             ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
           ),
-          Expanded(
-            child: Text(value),
           ),
         ],
       ),
@@ -2509,8 +2653,294 @@ class _CustomerPageState extends State<CustomerPage> {
       ),
     );
   }
+
+  // Method to open the chat dialog with driver
+  void _openChatWithDriver(String orderId, String driverId, String driverName) {
+    showDialog(
+      context: context,
+      builder: (context) => CustomerDriverChatDialog(
+        orderId: orderId,
+        driverId: driverId,
+        driverName: driverName,
+        customerId: FirebaseAuth.instance.currentUser?.uid ?? '',
+        customerName: FirebaseAuth.instance.currentUser?.displayName ?? 'Customer',
+      ),
+    );
+  }
+
+  Future<void> _listenForNewOrders() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    // Listen for new orders
+    _database
+        .ref()
+        .child('orders')
+        .orderByChild('customerId')
+        .equalTo(userId)
+        .onChildAdded
+        .listen((event) {
+      if (!event.snapshot.exists) return;
+
+      final order = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (order == null) return;
+
+      final orderId = event.snapshot.key as String;
+      final orderStatus = order['order_status'] as String?;
+
+      // Set up listener for pending orders
+      if (orderStatus == 'pending') {
+        _notificationService.listenForOrderStatusChanges(
+          orderId: orderId,
+          userId: userId,
+          context: context,
+        );
+      }
+    });
+  }
 }
 
+// Dialog for customer to chat with driver
+class CustomerDriverChatDialog extends StatefulWidget {
+  final String orderId;
+  final String driverId;
+  final String driverName;
+  final String customerId;
+  final String customerName;
+
+  const CustomerDriverChatDialog({
+    Key? key,
+    required this.orderId,
+    required this.driverId,
+    required this.driverName,
+    required this.customerId,
+    required this.customerName,
+  }) : super(key: key);
+
+  @override
+  _CustomerDriverChatDialogState createState() => _CustomerDriverChatDialogState();
+}
+
+class _CustomerDriverChatDialogState extends State<CustomerDriverChatDialog> {
+  final TextEditingController _messageController = TextEditingController();
+  late Stream<DatabaseEvent> _messagesStream;
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Set up the stream for driver-customer messages within the orders reference
+    _messagesStream = FirebaseDatabase.instance
+        .ref()
+        .child('orders')
+        .child(widget.orderId)
+        .child('driver_customer_messages')
+        .onValue;
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
+    final message = _messageController.text.trim();
+    if (message.isEmpty) return;
+
+    setState(() => _sending = true);
+
+    try {
+      // Create a new message entry under the specific order
+      final ref = FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .child(widget.orderId)
+          .child('driver_customer_messages')
+          .push();
+
+      await ref.set({
+        'message': message,
+        'senderId': widget.customerId,
+        'senderName': widget.customerName,
+        'senderType': 'customer',
+        'timestamp': ServerValue.timestamp,
+        'driverId': widget.driverId,
+      });
+
+      // Clear the message field
+      _messageController.clear();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error sending message: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+          maxWidth: MediaQuery.of(context).size.width * 0.9,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Chat with ${widget.driverName}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // Messages list
+            Expanded(
+              child: StreamBuilder<DatabaseEvent>(
+                stream: _messagesStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error: ${snapshot.error}'));
+                  }
+
+                  final messagesData = snapshot.data?.snapshot.value;
+                  if (messagesData == null) {
+                    return const Center(child: Text('No messages yet'));
+                  }
+
+                  final List<Map<String, dynamic>> messages = [];
+                  
+                  // Convert the Firebase data structure to a list
+                  if (messagesData is Map<dynamic, dynamic>) {
+                    messagesData.forEach((key, value) {
+                      if (value is Map) {
+                        final message = Map<String, dynamic>.from(value);
+                        message['id'] = key;
+                        messages.add(message);
+                      }
+                    });
+                  } else {
+                    return const Center(child: Text('No messages yet'));
+                  }
+                  
+                  // Sort by timestamp
+                  messages.sort((a, b) {
+                    final timestampA = a['timestamp'] as int? ?? 0;
+                    final timestampB = b['timestamp'] as int? ?? 0;
+                    return timestampA.compareTo(timestampB);
+                  });
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(8),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final message = messages[index];
+                      final isCustomer = message['senderType'] == 'customer';
+                      final timestamp = message['timestamp'] as int? ?? 0;
+                      final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+                      
+                      return Align(
+                        alignment: isCustomer ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isCustomer ? Colors.blue[100] : Colors.grey[200],
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.6,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(message['message'] as String? ?? ''),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            // Message input
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message...',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      ),
+                      maxLines: 3,
+                      minLines: 1,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _sendMessage(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send, color: Colors.blue),
+                    onPressed: _sending ? null : _sendMessage,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+} 
+
+// Dialog for customizing menu items
 class CustomizationDialog extends StatefulWidget {
   final Map item;
   final String itemId;
