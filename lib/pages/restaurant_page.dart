@@ -19,6 +19,8 @@ import '../pages/restaurant_chat_page.dart';
 import 'edit_store_info_page.dart';
 import 'order_chat_page.dart';
 import '../widgets/unread_message_count.dart';
+import 'sales_reports_page.dart';
+import 'best_selling_dishes_page.dart';
 
 class RestaurantPage extends StatefulWidget {
   const RestaurantPage({super.key});
@@ -69,7 +71,8 @@ class _RestaurantPageState extends State<RestaurantPage> {
         .child('orders')
         .orderByChild('restaurantId')
         .equalTo(_user?.uid)
-        .onValue;
+        .onValue
+        .asBroadcastStream();
   }
 
   @override
@@ -392,8 +395,36 @@ class _RestaurantPageState extends State<RestaurantPage> {
     }
   }
 
-  Future<void> _selectTime(BuildContext context, String day, bool isOpening) async {
-    final currentTime = _businessHours[day]?[isOpening ? 'openTime' : 'closeTime'] ?? '09:00';
+  Future<void> _updateDiscount(int discountPercentage) async {
+    try {
+      await FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(_user!.uid)
+          .update({
+        'discount': discountPercentage,
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(discountPercentage > 0 
+              ? 'Discount set to $discountPercentage%' 
+              : 'Discount removed'),
+          backgroundColor: const Color(0xFFF4A261),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating discount: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _selectTime(BuildContext context, String day, bool isOpeningTime) async {
+    final currentTime = _businessHours[day]?[isOpeningTime ? 'openTime' : 'closeTime'] ?? '09:00';
     final parts = currentTime.split(':');
     final initialTime = TimeOfDay(
       hour: int.parse(parts[0]),
@@ -408,7 +439,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
     if (picked != null) {
       final newTime = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
       setState(() {
-        _businessHours[day]![isOpening ? 'openTime' : 'closeTime'] = newTime;
+        _businessHours[day]![isOpeningTime ? 'openTime' : 'closeTime'] = newTime;
       });
 
       try {
@@ -1903,6 +1934,56 @@ class _RestaurantPageState extends State<RestaurantPage> {
             ),
             const SizedBox(height: 16),
 
+            // Sales Reports Button
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.bar_chart, color: Color(0xFFF4A261)),
+                title: const Text(
+                  'Sales Reports',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: const Text('View your sales statistics and revenue analytics'),
+                trailing: const Icon(Icons.arrow_forward_ios),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SalesReportsPage(),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Best Selling Dishes Button
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.trending_up, color: Color(0xFFF4A261)),
+                title: const Text(
+                  'Best Selling Dishes',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: const Text('View your most popular dishes and their sales performance'),
+                trailing: const Icon(Icons.arrow_forward_ios),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const BestSellingDishesPage(),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // Store Hours Section
             Card(
               child: ExpansionTile(
@@ -1961,6 +2042,79 @@ class _RestaurantPageState extends State<RestaurantPage> {
                           ),
                         ),
                       )).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Special Discount Section
+            Card(
+              child: ExpansionTile(
+                title: const Text(
+                  'Special Discount',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                leading: const Icon(Icons.discount, color: Color(0xFFF4A261)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Set a discount percentage for all orders:',
+                          style: TextStyle(
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        StreamBuilder<DatabaseEvent>(
+                          stream: FirebaseDatabase.instance
+                              .ref()
+                              .child('restaurants')
+                              .child(_user!.uid)
+                              .child('discount')
+                              .onValue,
+                          builder: (context, snapshot) {
+                            int currentDiscount = 0;
+                            if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
+                              currentDiscount = (snapshot.data!.snapshot.value as int?) ?? 0;
+                            }
+                            
+                            return DropdownButtonFormField<int>(
+                              decoration: const InputDecoration(
+                                labelText: 'Discount Percentage',
+                                border: OutlineInputBorder(),
+                              ),
+                              value: currentDiscount,
+                              items: [0, 10, 20, 30, 40, 50].map((percentage) {
+                                return DropdownMenuItem<int>(
+                                  value: percentage,
+                                  child: Text(percentage == 0 ? 'No Discount' : '$percentage%'),
+                                );
+                              }).toList(),
+                              onChanged: (value) {
+                                if (value != null) {
+                                  _updateDiscount(value);
+                                }
+                              },
+                            );
+                          }
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Note: The discount will be applied automatically to all customer orders.',
+                          style: TextStyle(
+                            fontStyle: FontStyle.italic,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

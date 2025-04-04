@@ -191,11 +191,25 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
                             fontSize: 16,
                           ),
                         ),
-                        subtitle: Text(
-                          customer['email'] ?? 'No email',
-                          style: const TextStyle(
-                            color: Colors.grey,
-                          ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              customer['email'] ?? 'No email',
+                              style: const TextStyle(
+                                color: Colors.grey,
+                              ),
+                            ),
+                            if (customer['blocked'] == true)
+                              const Text(
+                                'BLOCKED',
+                                style: TextStyle(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                          ],
                         ),
                         children: [
                           Padding(
@@ -235,10 +249,13 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
                                     const SizedBox(width: 8),
                                     TextButton.icon(
                                       onPressed: () {
-                                        // TODO: Implement block/unblock customer
+                                        _toggleUserBlock(entry.key, customer['blocked'] == true);
                                       },
                                       icon: const Icon(Icons.block),
-                                      label: const Text('Block'),
+                                      label: Text(customer['blocked'] == true ? 'Unblock' : 'Block'),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: customer['blocked'] == true ? Colors.green : Colors.red,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -280,5 +297,72 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _toggleUserBlock(String customerId, bool isBlocked) async {
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(isBlocked ? 'Unblock Customer' : 'Block Customer'),
+          content: Text('Are you sure you want to ${isBlocked ? 'unblock' : 'block'} this customer?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(isBlocked ? 'Unblock' : 'Block'),
+              style: TextButton.styleFrom(
+                foregroundColor: isBlocked ? Colors.green : Colors.red,
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed == true) {
+        // Toggle blocked status (simply flip the current state)
+        await FirebaseDatabase.instance.ref('customers')
+            .child(customerId)
+            .update({
+              'blocked': !isBlocked,
+              'blockedAt': !isBlocked ? ServerValue.timestamp : null,
+            });
+        
+        // Show success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Customer ${!isBlocked ? 'blocked' : 'unblocked'} successfully'),
+            ),
+          );
+          
+          // Refresh the customer list
+          setState(() {
+            _isLoading = true;
+            // This will trigger the UI to show loading state briefly
+            Future.delayed(const Duration(milliseconds: 500), () {
+              if (mounted) {
+                setState(() {
+                  _isLoading = false;
+                });
+              }
+            });
+          });
+        }
+      }
+    } catch (e) {
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 } 

@@ -88,7 +88,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               'name': userData['fullName'] ?? 'Unknown',
               'email': userData['email'] ?? '',
               'phone': userData['phone'] ?? '',
-              'status': userData['status'] ?? 'active',
+              'blocked': userData['blocked'] ?? false,
               'createdAt': userData['createdAt'],
               'blockedAt': userData['blockedAt'],
             };
@@ -219,7 +219,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             'name': userData['fullName'] ?? 'Unknown',
                             'email': userData['email'] ?? '',
                             'phone': userData['phone'] ?? '',
-                            'status': userData['status'] ?? 'active',
+                            'blocked': userData['blocked'] ?? false,
                             'address': userData['address'],
                             'createdAt': userData['createdAt'],
                             'blockedAt': userData['blockedAt'],
@@ -230,7 +230,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                           itemCount: customerList.length,
                           itemBuilder: (context, index) {
                             final user = customerList[index];
-                            final isBlocked = user['status'] == 'blocked';
+                            final isBlocked = user['blocked'] == true;
 
                             return Card(
                               margin: const EdgeInsets.only(bottom: 8),
@@ -248,7 +248,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                   children: [
                                     Text(user['email'] ?? ''),
                                     Text(
-                                      'Status: ${user['status'] ?? 'active'}',
+                                      'Status: ${isBlocked ? 'Blocked' : 'Active'}',
                                       style: TextStyle(
                                         color: isBlocked ? Colors.red : Colors.green,
                                         fontWeight: FontWeight.bold,
@@ -283,7 +283,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                               itemCount: _users.length,
                               itemBuilder: (context, index) {
                                 final user = _users[index];
-                                final isBlocked = user['status'] == 'blocked';
+                                final isBlocked = user['blocked'] == true;
 
                                 return Card(
                                   margin: const EdgeInsets.only(bottom: 8),
@@ -440,7 +440,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         await _database.ref(collectionName)
             .child(user['id'])
             .update({
-              'status': block ? 'blocked' : 'active',
+              'blocked': block,
               'blockedAt': block ? ServerValue.timestamp : null,
             });
         
@@ -814,15 +814,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                       decoration: BoxDecoration(
-                        color: user['status'] == 'blocked' 
+                        color: user['blocked'] == true
                             ? Colors.red.withAlpha(51)
                             : Colors.green.withAlpha(51),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        user['status'] == 'blocked' ? 'Blocked' : 'Active',
+                        user['blocked'] == true ? 'Blocked' : 'Active',
                         style: TextStyle(
-                          color: user['status'] == 'blocked' ? Colors.red : Colors.green,
+                          color: user['blocked'] == true ? Colors.red : Colors.green,
                           fontWeight: FontWeight.bold,
                         ),
                       ),

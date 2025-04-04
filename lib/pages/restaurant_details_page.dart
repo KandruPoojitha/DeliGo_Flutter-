@@ -897,31 +897,21 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
                                         '${averageRating.toStringAsFixed(1)} ',
                                         style: const TextStyle(
                                           fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.black87,
                                         ),
                                       ),
                                       Text(
-                                        '(${count.toString()})',
+                                        '($count reviews)',
                                         style: const TextStyle(
                                           fontSize: 14,
                                           color: Colors.grey,
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        'View Reviews',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Color(0xFFF4A261),
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
                                     ],
                                   );
                                 }
+                                
                                 return const Text(
-                                  'No reviews yet',
+                                  '0.0 (0 reviews)',
                                   style: TextStyle(
                                     fontSize: 14,
                                     color: Colors.grey,
@@ -932,6 +922,38 @@ class _RestaurantDetailsPageState extends State<RestaurantDetailsPage> {
                           ],
                         ),
                       ),
+                      
+                      // Display discount if available
+                      if (widget.restaurant['discount'] != null && (widget.restaurant['discount'] as int) > 0) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.green, width: 1),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.discount,
+                                color: Colors.green,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Special Discount: ${widget.restaurant['discount']}% OFF',
+                                style: const TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

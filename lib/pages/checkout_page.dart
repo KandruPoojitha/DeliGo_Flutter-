@@ -39,6 +39,51 @@ class _CheckoutPageState extends State<CheckoutPage> {
   double _selectedTipPercentage = 0;
   bool _isProcessing = false;
   static const String _serverUrl = 'http://your-server-url.com';
+  
+  // Discount properties
+  int _discountPercentage = 0;
+  bool _isLoadingDiscount = true;
+  String _restaurantId = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Extract restaurantId from first cart item
+    if (widget.cartItems.isNotEmpty) {
+      final firstItem = widget.cartItems.values.first as Map;
+      _restaurantId = firstItem['restaurantId'] ?? '';
+      
+      // Fetch restaurant discount
+      if (_restaurantId.isNotEmpty) {
+        _fetchRestaurantDiscount();
+      }
+    }
+  }
+
+  Future<void> _fetchRestaurantDiscount() async {
+    try {
+      final discountSnapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(_restaurantId)
+          .child('discount')
+          .get();
+
+      if (mounted) {
+        setState(() {
+          _discountPercentage = (discountSnapshot.value as int?) ?? 0;
+          _isLoadingDiscount = false;
+        });
+      }
+    } catch (e) {
+      print('Error fetching discount: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingDiscount = false;
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -49,7 +94,14 @@ class _CheckoutPageState extends State<CheckoutPage> {
   }
 
   double get _tipAmount => widget.subtotal * (_tipPercentage / 100);
-  double get _totalAmount => widget.subtotal + _tipAmount + (_isDelivery ? _deliveryFee : 0);
+  
+  double get _discountAmount => _discountPercentage > 0 
+      ? (widget.subtotal * _discountPercentage / 100) 
+      : 0.0;
+      
+  double get _subtotalAfterDiscount => widget.subtotal - _discountAmount;
+  
+  double get _totalAmount => _subtotalAfterDiscount + _tipAmount + (_isDelivery ? _deliveryFee : 0);
 
   Future<void> _getPlacePredictions(String input) async {
     if (input.isEmpty) {
@@ -439,6 +491,27 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         Text('\$${widget.subtotal.toStringAsFixed(2)}'),
                       ],
                     ),
+                    // Show discount if present
+                    if (_discountPercentage > 0) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Discount (${_discountPercentage}%)',
+                            style: const TextStyle(
+                              color: Colors.green,
+                            ),
+                          ),
+                          Text(
+                            '-\$${_discountAmount.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              color: Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     if (_isDelivery) ...[
                       const SizedBox(height: 8),
                       Row(
@@ -704,6 +777,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
         'restaurantId': restaurantId,
         'status': 'pending',
         'subtotal': widget.subtotal,
+        'discountPercentage': _discountPercentage,
+        'discountAmount': _discountAmount,
+        'subtotalAfterDiscount': _subtotalAfterDiscount,
         'tipAmount': _tipAmount,
         'tipPercentage': _tipPercentage,
         'total': _totalAmount,

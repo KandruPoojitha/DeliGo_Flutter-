@@ -180,7 +180,6 @@ class _SignupPageState extends State<SignupPage> {
               .child(userCredential.user!.uid)
               .set({
             ...userData,
-            'status': 'active',
             'favorites': {},
             'cart': {},
             'orders': {},

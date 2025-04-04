@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter/services.dart';
 import 'login_page.dart';
 import 'restaurant_details_page.dart';
 import 'checkout_page.dart';
@@ -10,6 +11,7 @@ import 'edit_customer_profile_page.dart';
 import 'receipt_screen.dart';
 import 'order_chat_page.dart';
 import '../widgets/unread_message_count.dart';
+// import 'package:share_plus/share_plus.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -581,6 +583,28 @@ class _CustomerPageState extends State<CustomerPage> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
+                              // Display discount if available
+                              if (restaurant['discount'] != null && (restaurant['discount'] as int) > 0) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.discount,
+                                      size: 14,
+                                      color: Colors.green,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${restaurant['discount']}% OFF',
+                                      style: const TextStyle(
+                                        color: Colors.green,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ),
                         ],
@@ -2126,6 +2150,59 @@ class _CustomerPageState extends State<CustomerPage> {
           ),
           const SizedBox(height: 16),
           
+          // Share App Card
+          Card(
+            elevation: 2,
+            child: InkWell(
+              onTap: () {
+                _showShareAppDialog();
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4A261).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.share,
+                        color: Color(0xFFF4A261),
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Share App',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Invite friends to use DeliGo',
+                            style: TextStyle(
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
           // Logout Button
           SizedBox(
             width: double.infinity,
@@ -2185,6 +2262,211 @@ class _CustomerPageState extends State<CustomerPage> {
     }
     
     return '$dollarSigns \$$min-$max';
+  }
+
+  void _showShareAppDialog() {
+    final String appLink = 'https://play.google.com/store/apps/details?id=com.deligo.app';
+    final String shareMessage = 'Hey! I\'ve been using DeliGo for food delivery and it\'s amazing! Give it a try: $appLink';
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.share, color: Color(0xFFF4A261)),
+            const SizedBox(width: 8),
+            const Text('Share DeliGo'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Copy the link or message and share it with your friends and family:',
+                style: TextStyle(
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        appLink,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: appLink));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Link copied to clipboard'),
+                            backgroundColor: Color(0xFFF4A261),
+                          ),
+                        );
+                        Navigator.pop(context);
+                      },
+                      tooltip: 'Copy to clipboard',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Copy text for:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Email
+                  _buildShareOption(
+                    icon: Icons.email,
+                    label: 'Email',
+                    color: Colors.red,
+                    onTap: () => _shareViaEmail(shareMessage),
+                  ),
+                  // WhatsApp
+                  _buildShareOption(
+                    icon: Icons.chat_bubble,
+                    label: 'WhatsApp',
+                    color: Colors.green,
+                    onTap: () => _launchURL('whatsapp://send?text=${Uri.encodeComponent(shareMessage)}'),
+                  ),
+                  // SMS
+                  _buildShareOption(
+                    icon: Icons.sms,
+                    label: 'SMS',
+                    color: Colors.blue,
+                    onTap: () => _launchURL('sms:?body=${Uri.encodeComponent(shareMessage)}'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Twitter/X
+                  _buildShareOption(
+                    icon: Icons.message,
+                    label: 'Twitter',
+                    color: Colors.lightBlue,
+                    onTap: () => _launchURL('https://twitter.com/intent/tweet?text=${Uri.encodeComponent(shareMessage)}'),
+                  ),
+                  // Facebook
+                  _buildShareOption(
+                    icon: Icons.thumb_up,
+                    label: 'Facebook',
+                    color: Colors.indigo,
+                    onTap: () => _launchURL('https://www.facebook.com/sharer/sharer.php?u=${Uri.encodeComponent(appLink)}'),
+                  ),
+                  // Instagram
+                  _buildShareOption(
+                    icon: Icons.camera_alt,
+                    label: 'Instagram',
+                    color: Colors.purple,
+                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Copy the link and share on Instagram'),
+                        backgroundColor: Color(0xFFF4A261),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShareOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: () {
+        Navigator.pop(context);
+        onTap();
+      },
+      child: Column(
+        children: [
+          CircleAvatar(
+            backgroundColor: color.withOpacity(0.2),
+            radius: 22,
+            child: Icon(icon, color: color),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Copy for $label',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _shareViaEmail(String message) {
+    final String emailText = 'Subject: Check out DeliGo Food Delivery App\n\n$message';
+    Clipboard.setData(ClipboardData(text: emailText));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Email text copied to clipboard. Paste it in your email app.'),
+          backgroundColor: Color(0xFFF4A261),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  void _launchURL(String urlString) async {
+    try {
+      // Due to platform-specific issues, we'll use clipboard instead
+      Clipboard.setData(ClipboardData(text: urlString));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Link copied to clipboard: $urlString'),
+            backgroundColor: const Color(0xFFF4A261),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
