@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'user_management/user_management_screen.dart';
 import 'chat_management/chat_management_screen.dart';
+import 'order_management/order_management_screen.dart';
+import 'payment_transactions/payment_transactions_screen.dart';
 import '../login_page.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -13,6 +15,8 @@ class AdminDashboard extends StatefulWidget {
 
 class _AdminDashboardState extends State<AdminDashboard> {
   final _auth = FirebaseAuth.instance;
+  int _selectedIndex = -1;
+  Widget _currentScreen = Container();
 
   Future<void> _logout() async {
     try {
@@ -32,6 +36,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
+  void _navigateToScreen(int index, Widget screen) {
+    setState(() {
+      _selectedIndex = index;
+      _currentScreen = screen;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -46,34 +57,44 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
         ],
       ),
-      body: GridView.count(
-        padding: const EdgeInsets.all(16.0),
-        crossAxisCount: 2,
-        children: [
-          _buildDashboardCard(
-            context,
-            'User Management',
-            Icons.people,
-            () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const UserManagementScreen(),
-              ),
-            ),
-          ),
-          _buildDashboardCard(
-            context,
-            'Chat Management',
-            Icons.chat,
-            () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const ChatManagementScreen(),
-              ),
-            ),
-          ),
-        ],
-      ),
+      body: _selectedIndex == -1
+          ? GridView.count(
+              padding: const EdgeInsets.all(16.0),
+              crossAxisCount: 2,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              children: [
+                _buildDashboardCard(
+                  context,
+                  'User Management',
+                  Icons.people,
+                  Colors.green,
+                  () => _navigateToScreen(0, const UserManagementScreen()),
+                ),
+                _buildDashboardCard(
+                  context,
+                  'Chat Management',
+                  Icons.chat,
+                  Colors.orange,
+                  () => _navigateToScreen(1, const ChatManagementScreen()),
+                ),
+                _buildDashboardCard(
+                  context,
+                  'Order Management',
+                  Icons.receipt_long,
+                  Colors.blue,
+                  () => _navigateToScreen(2, const OrderManagementScreen()),
+                ),
+                _buildDashboardCard(
+                  context,
+                  'Payment Transactions',
+                  Icons.payment,
+                  Colors.purple,
+                  () => _navigateToScreen(3, const PaymentTransactionsScreen()),
+                ),
+              ],
+            )
+          : _currentScreen,
     );
   }
 
@@ -81,6 +102,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     BuildContext context,
     String title,
     IconData icon,
+    Color color,
     VoidCallback onTap,
   ) {
     return Card(
@@ -93,15 +115,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
             Icon(
               icon,
               size: 48,
-              color: Theme.of(context).primaryColor,
+              color: color,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             Text(
               title,
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
