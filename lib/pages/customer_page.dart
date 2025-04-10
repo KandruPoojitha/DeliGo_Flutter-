@@ -1459,6 +1459,64 @@ class _CustomerPageState extends State<CustomerPage> {
                               ),
                             ],
                           ),
+                          Stack(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.group),
+                                onPressed: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) => OrderGroupChatDialog(
+                                      orderId: orderId,
+                                      customerId: _auth.currentUser?.uid ?? '',
+                                      customerName: _auth.currentUser?.displayName ?? 'Customer',
+                                      restaurantName: restaurantName,
+                                      driverName: order['driverName'] ?? 'Driver',
+                                    ),
+                                  );
+                                },
+                                tooltip: 'Group Chat',
+                                color: Colors.purple,
+                              ),
+                              Positioned(
+                                right: 5,
+                                top: 5,
+                                child: StreamBuilder<DatabaseEvent>(
+                                  stream: FirebaseDatabase.instance
+                                      .ref()
+                                      .child('orders')
+                                      .child(orderId)
+                                      .child('group_chat')
+                                      .onValue,
+                                  builder: (context, snapshot) {
+                                    if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final messages = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                                    return Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 14,
+                                        minHeight: 14,
+                                      ),
+                                      child: Text(
+                                        messages.length.toString(),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 8,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     const SizedBox(width: 8),
@@ -2930,7 +2988,7 @@ class _CustomerDriverChatDialogState extends State<CustomerDriverChatDialog> {
         'message': message,
         'senderId': widget.customerId,
         'senderName': widget.customerName,
-        'senderType': 'customer',
+        'senderType': 'customer',  // Changed to lowercase
         'timestamp': ServerValue.timestamp,
         'driverId': widget.driverId,
       });
@@ -3198,6 +3256,285 @@ class _CustomizationDialogState extends State<CustomizationDialog> {
           child: const Text('Save'),
         ),
       ],
+    );
+  }
+} 
+
+// Add this new class at the end of the file
+class OrderGroupChatDialog extends StatefulWidget {
+  final String orderId;
+  final String customerId;
+  final String customerName;
+  final String restaurantName;
+  final String driverName;
+
+  const OrderGroupChatDialog({
+    Key? key,
+    required this.orderId,
+    required this.customerId,
+    required this.customerName,
+    required this.restaurantName,
+    required this.driverName,
+  }) : super(key: key);
+
+  @override
+  _OrderGroupChatDialogState createState() => _OrderGroupChatDialogState();
+}
+
+class _OrderGroupChatDialogState extends State<OrderGroupChatDialog> {
+  final TextEditingController _messageController = TextEditingController();
+  late Stream<DatabaseEvent> _messagesStream;
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _messagesStream = FirebaseDatabase.instance
+        .ref()
+        .child('orders')
+        .child(widget.orderId)
+        .child('group_chat')
+        .onValue;
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
+    final message = _messageController.text.trim();
+    if (message.isEmpty) return;
+
+    setState(() => _sending = true);
+
+    try {
+      // Get customer's full name from Firebase
+      final customerSnapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('customers')
+          .child(widget.customerId)
+          .child('fullName')
+          .get();
+      
+      final customerName = customerSnapshot.value?.toString() ?? 'Customer';
+
+      final ref = FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .child(widget.orderId)
+          .child('group_chat')
+          .push();
+
+      await ref.set({
+        'message': message,
+        'senderId': widget.customerId,
+        'senderName': customerName,
+        'senderType': 'customer',  // Changed to lowercase
+        'timestamp': ServerValue.timestamp,
+      });
+
+      _messageController.clear();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sending message: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+          maxWidth: MediaQuery.of(context).size.width * 0.9,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Group Chat',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Order #${widget.orderId}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: StreamBuilder<DatabaseEvent>(
+                stream: _messagesStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error: ${snapshot.error}'));
+                  }
+
+                  final messagesData = snapshot.data?.snapshot.value;
+                  if (messagesData == null) {
+                    return const Center(child: Text('No messages yet'));
+                  }
+
+                  final List<Map<String, dynamic>> messages = [];
+                  
+                  if (messagesData is Map<dynamic, dynamic>) {
+                    messagesData.forEach((key, value) {
+                      if (value is Map) {
+                        final message = Map<String, dynamic>.from(value);
+                        message['id'] = key;
+                        messages.add(message);
+                      }
+                    });
+                  }
+
+                  messages.sort((a, b) {
+                    final timestampA = a['timestamp'] as int? ?? 0;
+                    final timestampB = b['timestamp'] as int? ?? 0;
+                    return timestampA.compareTo(timestampB);
+                  });
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(8),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final message = messages[index];
+                      final isCurrentUser = message['senderId'] == widget.customerId;
+                      final senderType = message['senderType'] as String? ?? '';
+                      final senderName = message['senderName'] as String? ?? 'Unknown';
+                      final timestamp = message['timestamp'] as int? ?? 0;
+                      final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+
+                      Color bubbleColor;
+                      switch (senderType.toLowerCase()) {  // Convert to lowercase for comparison
+                        case 'customer':
+                          bubbleColor = Colors.blue[100]!;
+                          break;
+                        case 'driver':
+                          bubbleColor = Colors.green[100]!;
+                          break;
+                        case 'restaurant':
+                          bubbleColor = Colors.orange[100]!;
+                          break;
+                        default:
+                          bubbleColor = Colors.grey[200]!;
+                      }
+
+                      return Align(
+                        alignment: isCurrentUser ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: bubbleColor,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.6,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                senderName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(message['message'] as String? ?? ''),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message...',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      ),
+                      maxLines: 3,
+                      minLines: 1,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _sendMessage(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send, color: Colors.blue),
+                    onPressed: _sending ? null : _sendMessage,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 } 
