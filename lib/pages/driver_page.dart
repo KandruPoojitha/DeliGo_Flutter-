@@ -2269,6 +2269,30 @@ class _DriverPageState extends State<DriverPage> {
                               ],
                             ),
                       ),
+                      const SizedBox(height: 12),
+                      // Group Chat Button
+                      Center(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => OrderGroupChatDialog(
+                                orderId: orderId,
+                                driverId: _user!.uid,
+                                driverName: _user!.displayName ?? 'Driver',
+                                customerName: customerName,
+                                restaurantName: order['restaurantName'] ?? 'Restaurant',
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.group),
+                          label: const Text('Open Group Chat'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.purple,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -3728,6 +3752,285 @@ class _ChatDialogState extends State<ChatDialog> {
             ),
             const Divider(height: 1),
             // Message input
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message...',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      ),
+                      maxLines: 3,
+                      minLines: 1,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _sendMessage(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send, color: Colors.blue),
+                    onPressed: _sending ? null : _sendMessage,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+} 
+
+// Add this new class at the end of the file
+class OrderGroupChatDialog extends StatefulWidget {
+  final String orderId;
+  final String driverId;
+  final String driverName;
+  final String customerName;
+  final String restaurantName;
+
+  const OrderGroupChatDialog({
+    Key? key,
+    required this.orderId,
+    required this.driverId,
+    required this.driverName,
+    required this.customerName,
+    required this.restaurantName,
+  }) : super(key: key);
+
+  @override
+  _OrderGroupChatDialogState createState() => _OrderGroupChatDialogState();
+}
+
+class _OrderGroupChatDialogState extends State<OrderGroupChatDialog> {
+  final TextEditingController _messageController = TextEditingController();
+  late Stream<DatabaseEvent> _messagesStream;
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _messagesStream = FirebaseDatabase.instance
+        .ref()
+        .child('orders')
+        .child(widget.orderId)
+        .child('group_chat')
+        .onValue;
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
+    final message = _messageController.text.trim();
+    if (message.isEmpty) return;
+
+    setState(() => _sending = true);
+
+    try {
+      // Get driver's full name from Firebase
+      final driverSnapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('drivers')
+          .child(widget.driverId)
+          .child('fullName')
+          .get();
+      
+      final driverName = driverSnapshot.value?.toString() ?? 'Driver';
+
+      final ref = FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .child(widget.orderId)
+          .child('group_chat')
+          .push();
+
+      await ref.set({
+        'message': message,
+        'senderId': widget.driverId,
+        'senderName': driverName,
+        'senderType': 'driver',
+        'timestamp': ServerValue.timestamp,
+      });
+
+      _messageController.clear();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sending message: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+          maxWidth: MediaQuery.of(context).size.width * 0.9,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Group Chat',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Order #${widget.orderId}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: StreamBuilder<DatabaseEvent>(
+                stream: _messagesStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error: ${snapshot.error}'));
+                  }
+
+                  final messagesData = snapshot.data?.snapshot.value;
+                  if (messagesData == null) {
+                    return const Center(child: Text('No messages yet'));
+                  }
+
+                  final List<Map<String, dynamic>> messages = [];
+                  
+                  if (messagesData is Map<dynamic, dynamic>) {
+                    messagesData.forEach((key, value) {
+                      if (value is Map) {
+                        final message = Map<String, dynamic>.from(value);
+                        message['id'] = key;
+                        messages.add(message);
+                      }
+                    });
+                  }
+
+                  messages.sort((a, b) {
+                    final timestampA = a['timestamp'] as int? ?? 0;
+                    final timestampB = b['timestamp'] as int? ?? 0;
+                    return timestampA.compareTo(timestampB);
+                  });
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(8),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final message = messages[index];
+                      final isCurrentUser = message['senderId'] == widget.driverId;
+                      final senderType = message['senderType'] as String? ?? '';
+                      final senderName = message['senderName'] as String? ?? 'Unknown';
+                      final timestamp = message['timestamp'] as int? ?? 0;
+                      final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+
+                      Color bubbleColor;
+                      switch (senderType.toLowerCase()) {
+                        case 'customer':
+                          bubbleColor = Colors.blue[100]!;
+                          break;
+                        case 'driver':
+                          bubbleColor = Colors.green[100]!;
+                          break;
+                        case 'restaurant':
+                          bubbleColor = Colors.orange[100]!;
+                          break;
+                        default:
+                          bubbleColor = Colors.grey[200]!;
+                      }
+
+                      return Align(
+                        alignment: isCurrentUser ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: bubbleColor,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.6,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                senderName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(message['message'] as String? ?? ''),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.all(8.0),
               child: Row(
