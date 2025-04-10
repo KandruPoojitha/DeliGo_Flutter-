@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'dart:convert';
 
 class PaymentTransactionsScreen extends StatefulWidget {
   const PaymentTransactionsScreen({Key? key}) : super(key: key);
@@ -10,27 +11,12 @@ class PaymentTransactionsScreen extends StatefulWidget {
 }
 
 class _PaymentTransactionsScreenState extends State<PaymentTransactionsScreen> {
-  final _database = FirebaseDatabase.instance;
-  String _selectedPaymentMethod = 'All';
-  String _selectedPaymentStatus = 'All';
+  List<Map<String, dynamic>> _transactions = [];
+  bool _isLoading = false;
   String _searchQuery = '';
-  DateTime? _startDate;
-  DateTime? _endDate;
   final TextEditingController _searchController = TextEditingController();
   
-  final List<String> _paymentMethodOptions = [
-    'All',
-    'Card',
-    'Cash',
-  ];
-  
-  final List<String> _paymentStatusOptions = [
-    'All',
-    'paid',
-    'pending',
-    'failed',
-    'refunded',
-  ];
+  final String _secretKey = "sk_test_51PlVh8P9Bz7XrwZPWSkDzX7AmaNgVr04yPOQWnbAECiYSWKtsmmVgD2Z8JYBY8a5dmEfKXaTewrBESb3fxIliwDo00HdJmKBKz";
 
   @override
   void initState() {
@@ -38,12 +24,10 @@ class _PaymentTransactionsScreenState extends State<PaymentTransactionsScreen> {
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text;
+        _filterTransactions();
       });
     });
-    
-    // Set default date range to last 30 days
-    _endDate = DateTime.now();
-    _startDate = _endDate!.subtract(const Duration(days: 30));
+    _fetchTransactions();
   }
 
   @override
@@ -52,76 +36,71 @@ class _PaymentTransactionsScreenState extends State<PaymentTransactionsScreen> {
     super.dispose();
   }
 
-  String _formatTimestamp(dynamic timestamp) {
-    if (timestamp == null) return 'N/A';
-    
-    DateTime dateTime;
-    if (timestamp is int) {
-      dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    } else if (timestamp is String) {
-      try {
-        dateTime = DateTime.parse(timestamp);
-      } catch (e) {
-        return 'Invalid Date';
+  Future<void> _fetchTransactions() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.stripe.com/v1/payment_intents'),
+        headers: {
+          'Authorization': 'Bearer $_secretKey',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          _transactions = List<Map<String, dynamic>>.from(data['data']);
+          _isLoading = false;
+        });
+      } else {
+        throw Exception('Failed to load transactions');
       }
-    } else {
-      return 'Invalid Date';
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading transactions: $e')),
+      );
     }
-    
-    return DateFormat('MMM dd, yyyy hh:mm a').format(dateTime);
   }
 
-  String _formatDate(DateTime date) {
-    return DateFormat('MMM dd, yyyy').format(date);
+  void _filterTransactions() {
+    if (_searchQuery.isEmpty) {
+      _fetchTransactions();
+      return;
+    }
+
+    setState(() {
+      _transactions = _transactions.where((transaction) {
+        return transaction['id'].toString().toLowerCase().contains(_searchQuery.toLowerCase());
+      }).toList();
+    });
   }
 
-  String _formatCurrency(double amount) {
-    return '\$${amount.toStringAsFixed(2)}';
+  String _formatTimestamp(int timestamp) {
+    final date = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+    return DateFormat('MMM dd, yyyy hh:mm a').format(date);
+  }
+
+  String _formatAmount(int amount) {
+    return '\$${(amount / 100).toStringAsFixed(2)}';
   }
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'paid':
+      case 'succeeded':
         return Colors.green;
-      case 'pending':
+      case 'requires_payment_method':
         return Colors.orange;
-      case 'failed':
+      case 'canceled':
         return Colors.red;
-      case 'refunded':
-        return Colors.purple;
       default:
         return Colors.grey;
-    }
-  }
-
-  Future<void> _selectDateRange() async {
-    final DateTimeRange? picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      initialDateRange: DateTimeRange(
-        start: _startDate ?? DateTime.now().subtract(const Duration(days: 30)),
-        end: _endDate ?? DateTime.now(),
-      ),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: Theme.of(context).primaryColor,
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-    
-    if (picked != null) {
-      setState(() {
-        _startDate = picked.start;
-        _endDate = picked.end;
-      });
     }
   }
 
@@ -136,546 +115,88 @@ class _PaymentTransactionsScreenState extends State<PaymentTransactionsScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: _searchController,
-                  decoration: const InputDecoration(
-                    hintText: 'Search by Order ID or Customer Name',
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.date_range),
-                        label: Text(_startDate != null && _endDate != null
-                            ? '${_formatDate(_startDate!)} - ${_formatDate(_endDate!)}'
-                            : 'Select Date Range'),
-                        onPressed: _selectDateRange,
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Payment Method:'),
-                          const SizedBox(height: 8),
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: _paymentMethodOptions.map((method) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: FilterChip(
-                                    label: Text(method),
-                                    selected: _selectedPaymentMethod == method,
-                                    onSelected: (selected) {
-                                      setState(() {
-                                        _selectedPaymentMethod = method;
-                                      });
-                                    },
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Payment Status:'),
-                          const SizedBox(height: 8),
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: _paymentStatusOptions.map((status) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: FilterChip(
-                                    label: Text(status),
-                                    selected: _selectedPaymentStatus == status,
-                                    onSelected: (selected) {
-                                      setState(() {
-                                        _selectedPaymentStatus = status;
-                                      });
-                                    },
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+            child: TextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                hintText: 'Search by Transaction ID',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
             ),
           ),
           Expanded(
-            child: StreamBuilder(
-              stream: _database.ref('orders').onValue,
-              builder: (context, AsyncSnapshot<DatabaseEvent> snapshot) {
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text('Error: ${snapshot.error}'),
-                  );
-                }
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
-                }
-
-                if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
-                  return const Center(
-                    child: Text('No payment transactions found'),
-                  );
-                }
-
-                Map<dynamic, dynamic> ordersMap = 
-                    snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-                
-                List<Map<String, dynamic>> transactions = [];
-                
-                ordersMap.forEach((key, value) {
-                  final orderData = value as Map<dynamic, dynamic>;
-                  
-                  // Only include orders with payment information
-                  if (orderData['paymentMethod'] != null) {
-                    transactions.add({
-                      'id': key,
-                      'orderId': key,
-                      'customerName': orderData['customerName'] ?? 'Unknown',
-                      'customerId': orderData['customerId'] ?? '',
-                      'paymentMethod': orderData['paymentMethod'] ?? 'Unknown',
-                      'paymentStatus': orderData['paymentStatus'] ?? 'pending',
-                      'amount': orderData['total'] != null 
-                          ? (orderData['total'] as num).toDouble() 
-                          : 0.0,
-                      'date': orderData['paymentTimestamp'] ?? orderData['createdAt'],
-                      'createdAt': orderData['createdAt'],
-                    });
-                  }
-                });
-
-                // Filter by date range
-                if (_startDate != null && _endDate != null) {
-                  transactions = transactions.where((transaction) {
-                    if (transaction['date'] == null) return false;
-                    
-                    DateTime transactionDate;
-                    if (transaction['date'] is int) {
-                      transactionDate = DateTime.fromMillisecondsSinceEpoch(transaction['date']);
-                    } else if (transaction['date'] is String) {
-                      try {
-                        transactionDate = DateTime.parse(transaction['date']);
-                      } catch (e) {
-                        return false;
-                      }
-                    } else {
-                      return false;
-                    }
-                    
-                    return transactionDate.isAfter(_startDate!) && 
-                           transactionDate.isBefore(_endDate!.add(const Duration(days: 1)));
-                  }).toList();
-                }
-
-                // Filter by payment method
-                if (_selectedPaymentMethod != 'All') {
-                  transactions = transactions
-                      .where((transaction) => transaction['paymentMethod'] == _selectedPaymentMethod)
-                      .toList();
-                }
-
-                // Filter by payment status
-                if (_selectedPaymentStatus != 'All') {
-                  transactions = transactions
-                      .where((transaction) => transaction['paymentStatus'] == _selectedPaymentStatus)
-                      .toList();
-                }
-
-                // Filter by search query
-                if (_searchQuery.isNotEmpty) {
-                  transactions = transactions.where((transaction) {
-                    return transaction['orderId'].toString().toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                        (transaction['customerName']?.toString()?.toLowerCase()?.contains(_searchQuery.toLowerCase()) ?? false);
-                  }).toList();
-                }
-
-                // Sort by most recent first
-                transactions.sort((a, b) {
-                  final aTime = a['date'] ?? a['createdAt'] ?? 0;
-                  final bTime = b['date'] ?? b['createdAt'] ?? 0;
-                  return bTime.compareTo(aTime);
-                });
-
-                if (transactions.isEmpty) {
-                  return const Center(
-                    child: Text('No transactions match your filters'),
-                  );
-                }
-
-                // Calculate totals
-                double total = 0;
-                transactions.forEach((transaction) {
-                  if (transaction['paymentStatus'] == 'paid') {
-                    total += transaction['amount'];
-                  }
-                });
-
-                return Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      color: Colors.grey[200],
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Total Transactions: ${transactions.length}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          Text(
-                            'Total Revenue: ${_formatCurrency(total)}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(8),
-                        itemCount: transactions.length,
-                        itemBuilder: (context, index) {
-                          final transaction = transactions[index];
-                          final status = transaction['paymentStatus'] ?? 'pending';
-                          
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            child: ListTile(
-                              title: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        'Transaction #${transaction['orderId'].toString().substring(0, 8)}',
-                                        style: const TextStyle(fontWeight: FontWeight.bold),
-                                      ),
-                                      Chip(
-                                        label: Text(
-                                          status,
-                                          style: const TextStyle(color: Colors.white),
-                                        ),
-                                        backgroundColor: _getStatusColor(status),
-                                      ),
-                                    ],
-                                  ),
-                                  Text('Customer: ${transaction['customerName']}'),
-                                ],
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Date: ${_formatTimestamp(transaction['date'])}'),
-                                  Text('Method: ${transaction['paymentMethod']}'),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Amount: ${_formatCurrency(transaction['amount'])}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.black,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.arrow_forward_ios),
-                                onPressed: () => _showTransactionDetails(transaction),
-                              ),
-                              onTap: () => _showTransactionDetails(transaction),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showTransactionDetails(Map<String, dynamic> transaction) {
-    // We'll need to fetch the full order details
-    _database.ref('orders/${transaction['orderId']}').get().then((snapshot) {
-      if (!snapshot.exists || !mounted) return;
-      
-      final orderData = snapshot.value as Map<dynamic, dynamic>;
-      
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        builder: (context) {
-          return Container(
-            padding: const EdgeInsets.all(16),
-            height: MediaQuery.of(context).size.height * 0.8,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Transaction Details',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-                const Divider(),
-                Expanded(
-                  child: ListView(
-                    children: [
-                      ListTile(
-                        title: const Text('Transaction ID'),
-                        subtitle: Text(transaction['orderId'] ?? 'N/A'),
-                      ),
-                      ListTile(
-                        title: const Text('Payment Status'),
-                        subtitle: Chip(
-                          label: Text(
-                            transaction['paymentStatus'] ?? 'pending',
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                          backgroundColor: _getStatusColor(transaction['paymentStatus'] ?? 'pending'),
-                        ),
-                      ),
-                      ListTile(
-                        title: const Text('Payment Method'),
-                        subtitle: Text(transaction['paymentMethod'] ?? 'N/A'),
-                      ),
-                      ListTile(
-                        title: const Text('Customer'),
-                        subtitle: Text(transaction['customerName'] ?? 'Unknown'),
-                      ),
-                      ListTile(
-                        title: const Text('Date'),
-                        subtitle: Text(_formatTimestamp(transaction['date'])),
-                      ),
-                      ListTile(
-                        title: const Text('Amount'),
-                        subtitle: Text(_formatCurrency(transaction['amount'])),
-                        trailing: transaction['paymentStatus'] == 'paid' 
-                            ? const Icon(Icons.check_circle, color: Colors.green)
-                            : null,
-                      ),
-                      const Divider(),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                        child: Text(
-                          'Order Details',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      ListTile(
-                        title: const Text('Order Status'),
-                        subtitle: Text(orderData['status'] ?? 'pending'),
-                      ),
-                      if (orderData['items'] != null) ...[
-                        const Padding(
-                          padding: EdgeInsets.only(left: 16.0, top: 8.0),
-                          child: Text(
-                            'Items',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: (orderData['items'] as List).length,
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _transactions.isEmpty
+                    ? const Center(child: Text('No transactions found'))
+                    : RefreshIndicator(
+                        onRefresh: _fetchTransactions,
+                        child: ListView.builder(
+                          itemCount: _transactions.length,
                           itemBuilder: (context, index) {
-                            final item = (orderData['items'] as List)[index];
-                            return ListTile(
-                              dense: true,
-                              title: Text(item['name'] ?? 'Unknown Item'),
-                              trailing: Text('${item['quantity']} × ${_formatCurrency((item['price'] as num).toDouble())}'),
+                            final transaction = _transactions[index];
+                            return Card(
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                                vertical: 8.0,
+                              ),
+                              child: ListTile(
+                                title: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Transaction ID:',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    Text(
+                                      transaction['id'],
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Amount: ${_formatAmount(transaction['amount'])}',
+                                      style: const TextStyle(color: Colors.black87),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _getStatusColor(transaction['status']),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        'Status: ${transaction['status']}',
+                                        style: const TextStyle(color: Colors.white),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _formatTimestamp(transaction['created']),
+                                      style: TextStyle(color: Colors.grey[600]),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             );
                           },
                         ),
-                      ],
-                      const Divider(),
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Payment Breakdown',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('Subtotal'),
-                                Text(_formatCurrency((orderData['subtotal'] as num?)?.toDouble() ?? 0.0)),
-                              ],
-                            ),
-                            if (orderData['discountAmount'] != null && (orderData['discountAmount'] as num) > 0) ...[
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text('Discount'),
-                                  Text('-${_formatCurrency((orderData['discountAmount'] as num).toDouble())}'),
-                                ],
-                              ),
-                            ],
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('Delivery Fee'),
-                                Text(_formatCurrency((orderData['deliveryFee'] as num?)?.toDouble() ?? 0.0)),
-                              ],
-                            ),
-                            if (orderData['tipAmount'] != null && (orderData['tipAmount'] as num) > 0) ...[
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text('Tip'),
-                                  Text(_formatCurrency((orderData['tipAmount'] as num).toDouble())),
-                                ],
-                              ),
-                            ],
-                            const Divider(),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Total',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                Text(
-                                  _formatCurrency((orderData['total'] as num?)?.toDouble() ?? 0.0),
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
                       ),
-                      const SizedBox(height: 16),
-                      if (transaction['paymentStatus'] != 'refunded') ...[
-                        ElevatedButton(
-                          onPressed: transaction['paymentStatus'] == 'paid' 
-                              ? () => _processRefund(transaction) 
-                              : null,
-                          child: const Text('Process Refund'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            disabledBackgroundColor: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      );
-    });
-  }
-
-  void _processRefund(Map<String, dynamic> transaction) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Process Refund'),
-          content: const Text('Are you sure you want to process a refund for this transaction?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                try {
-                  await _database.ref('orders/${transaction['orderId']}').update({
-                    'paymentStatus': 'refunded',
-                    'refundedAt': ServerValue.timestamp,
-                  });
-                  
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Refund processed successfully'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                } catch (e) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error processing refund: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              },
-              child: const Text('Refund'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ],
-        );
-      },
+          ),
+        ],
+      ),
     );
   }
 } 
