@@ -30,7 +30,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
   final _instructionsController = TextEditingController();
   double _tipPercentage = 0;
   bool _isCashOnDelivery = true;
-  double _deliveryFee = 4.99;
+  double _deliveryFee = 0.0;
   List<dynamic> _predictions = [];
   bool _isLoadingPredictions = false;
   static const String _apiKey = 'AIzaSyDHujk0Z7p3_mjmPsicmn7T9iyQBC0ZqtU';
@@ -39,11 +39,14 @@ class _CheckoutPageState extends State<CheckoutPage> {
   double _selectedTipPercentage = 0;
   bool _isProcessing = false;
   static const String _serverUrl = 'http://your-server-url.com';
+  static const double _ratePerKm = 1.5; // Rate per kilometer
   
   // Discount properties
   int _discountPercentage = 0;
   bool _isLoadingDiscount = true;
   String _restaurantId = '';
+  LatLng? _restaurantLocation;
+  LatLng? _deliveryLocation;
 
   @override
   void initState() {
@@ -53,10 +56,99 @@ class _CheckoutPageState extends State<CheckoutPage> {
       final firstItem = widget.cartItems.values.first as Map;
       _restaurantId = firstItem['restaurantId'] ?? '';
       
-      // Fetch restaurant discount
+      // Fetch restaurant location
       if (_restaurantId.isNotEmpty) {
+        _fetchRestaurantLocation();
         _fetchRestaurantDiscount();
       }
+    }
+  }
+
+  Future<void> _fetchRestaurantLocation() async {
+    try {
+      final restaurantSnapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(_restaurantId)
+          .child('store_info')
+          .child('address')
+          .get();
+
+      if (restaurantSnapshot.value != null) {
+        final address = restaurantSnapshot.value.toString();
+        final location = await _getLocationFromAddress(address);
+        if (mounted) {
+          setState(() {
+            _restaurantLocation = location;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching restaurant location: $e');
+    }
+  }
+
+  Future<LatLng> _getLocationFromAddress(String address) async {
+    try {
+      final response = await http.get(
+        Uri.parse('https://maps.googleapis.com/maps/api/geocode/json?address=$address&key=$_apiKey&components=country:ca|country:us'),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['results'].isNotEmpty) {
+          final location = data['results'][0]['geometry']['location'];
+          return LatLng(location['lat'], location['lng']);
+        }
+      }
+      throw Exception('Failed to get location from address');
+    } catch (e) {
+      print('Error getting location: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _calculateDeliveryFee() async {
+    if (_restaurantLocation == null || _deliveryLocation == null) {
+      return;
+    }
+
+    try {
+      final distance = await Geolocator.distanceBetween(
+        _restaurantLocation!.latitude,
+        _restaurantLocation!.longitude,
+        _deliveryLocation!.latitude,
+        _deliveryLocation!.longitude,
+      );
+
+      // Convert meters to kilometers and calculate fee
+      final distanceInKm = distance / 1000;
+      final deliveryFee = distanceInKm * _ratePerKm;
+
+      // Set minimum delivery fee (in CAD)
+      final minimumFee = 4.99; // Increased minimum fee for Canada
+      final finalFee = deliveryFee < minimumFee ? minimumFee : deliveryFee;
+
+      if (mounted) {
+        setState(() {
+          _deliveryFee = finalFee;
+        });
+      }
+    } catch (e) {
+      print('Error calculating delivery fee: $e');
+    }
+  }
+
+  Future<void> _onAddressSelected(String address) async {
+    try {
+      final location = await _getLocationFromAddress(address);
+      setState(() {
+        _deliveryLocation = location;
+        _streetController.text = address;
+      });
+      await _calculateDeliveryFee();
+    } catch (e) {
+      print('Error selecting address: $e');
     }
   }
 
@@ -103,70 +195,28 @@ class _CheckoutPageState extends State<CheckoutPage> {
   
   double get _totalAmount => _subtotalAfterDiscount + _tipAmount + (_isDelivery ? _deliveryFee : 0);
 
-  Future<void> _getPlacePredictions(String input) async {
-    if (input.isEmpty) {
+  Future<void> _searchAddress(String query) async {
+    if (query.isEmpty) {
       setState(() {
         _predictions = [];
-        _isLoadingPredictions = false;
       });
       return;
     }
 
-    setState(() {
-      _isLoadingPredictions = true;
-    });
-
     try {
-      final response = await http.get(Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/autocomplete/json'
-        '?input=$input'
-        '&key=$_apiKey'
-      ));
+      final response = await http.get(
+        Uri.parse(
+            'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=$query&key=$_apiKey&components=country:ca|country:us'),
+      );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
           _predictions = data['predictions'];
-          _isLoadingPredictions = false;
         });
-      } else {
-        throw Exception('Failed to load predictions');
       }
     } catch (e) {
-      setState(() {
-        _isLoadingPredictions = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error getting address suggestions: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _selectAddress(Map<String, dynamic> prediction) async {
-    try {
-      final response = await http.get(Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/details/json'
-        '?place_id=${prediction['place_id']}'
-        '&key=$_apiKey'
-      ));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['status'] == 'OK') {
-          setState(() {
-            _streetController.text = prediction['description'];
-            _predictions = [];
-          });
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error getting address details: $e')),
-        );
-      }
+      print('Error searching address: $e');
     }
   }
 
@@ -368,72 +418,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
               if (_isDelivery) ...[
                 _buildSection(
                   title: 'Delivery Address',
-                  child: Column(
-                    children: [
-                      TextFormField(
-                        controller: _streetController,
-                        decoration: InputDecoration(
-                          labelText: 'Street Address',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: _isLoadingPredictions
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : null,
-                        ),
-                        onChanged: (value) {
-                          _getPlacePredictions(value);
-                        },
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your street address';
-                          }
-                          return null;
-                        },
-                      ),
-                      if (_predictions.isNotEmpty)
-                        Container(
-                          constraints: const BoxConstraints(maxHeight: 200),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            border: Border.all(color: Colors.grey.shade300),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: _predictions.length,
-                            itemBuilder: (context, index) {
-                              final prediction = _predictions[index];
-                              return ListTile(
-                                title: Text(prediction['description']),
-                                onTap: () => _selectAddress(prediction),
-                              );
-                            },
-                          ),
-                        ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _unitController,
-                        decoration: const InputDecoration(
-                          labelText: 'Unit/Apartment Number (Optional)',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _instructionsController,
-                        decoration: const InputDecoration(
-                          labelText: 'Delivery Instructions (Optional)',
-                          border: OutlineInputBorder(),
-                        ),
-                        maxLines: 3,
-                      ),
-                    ],
-                  ),
+                  child: _buildAddressSearch(),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -658,6 +643,53 @@ class _CheckoutPageState extends State<CheckoutPage> {
               ),
             ),
       ),
+    );
+  }
+
+  Widget _buildAddressSearch() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _streetController,
+          decoration: const InputDecoration(
+            labelText: 'Street Address',
+            hintText: 'Enter your delivery address',
+          ),
+          onChanged: _searchAddress,
+        ),
+        if (_predictions.isNotEmpty)
+          Container(
+            height: 200,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.3),
+                  spreadRadius: 1,
+                  blurRadius: 3,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: ListView.builder(
+              itemCount: _predictions.length,
+              itemBuilder: (context, index) {
+                final prediction = _predictions[index];
+                return ListTile(
+                  title: Text(prediction['description']),
+                  onTap: () async {
+                    await _onAddressSelected(prediction['description']);
+                    setState(() {
+                      _predictions = [];
+                    });
+                  },
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
 
