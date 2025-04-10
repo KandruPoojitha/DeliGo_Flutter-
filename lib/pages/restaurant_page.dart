@@ -21,6 +21,7 @@ import 'order_chat_page.dart';
 import '../widgets/unread_message_count.dart';
 import 'sales_reports_page.dart';
 import 'best_selling_dishes_page.dart';
+import 'package:intl/intl.dart';
 
 class RestaurantPage extends StatefulWidget {
   const RestaurantPage({super.key});
@@ -889,57 +890,80 @@ class _RestaurantPageState extends State<RestaurantPage> {
                         ),
                       ),
                     if (order['order_status'] == 'delivered') 
-                      Stack(
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          IconButton(
-                            icon: const Icon(Icons.chat, size: 20),
-                            onPressed: () {
-                              final customerId = order['customerId'] ?? order['userId'] ?? '';
-                              final customerName = order['customerName'] ?? 'Customer';
-                              
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => OrderChatPage(
-                                    orderId: orderId,
-                                    restaurantId: _user?.uid ?? '',
-                                    restaurantName: _nameController.text.isNotEmpty ? _nameController.text : 'Restaurant',
-                                    customerName: customerName,
-                                    userType: 'restaurant',
-                                  ),
+                          // One-on-one chat button
+                          Stack(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.chat, size: 20),
+                                onPressed: () {
+                                  final customerId = order['customerId'] ?? order['userId'] ?? '';
+                                  final customerName = order['customerName'] ?? 'Customer';
+                                  
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => OrderChatPage(
+                                        orderId: orderId,
+                                        restaurantId: _user?.uid ?? '',
+                                        restaurantName: _nameController.text.isNotEmpty ? _nameController.text : 'Restaurant',
+                                        customerName: customerName,
+                                        userType: 'restaurant',
+                                      ),
+                                    ),
+                                  );
+                                },
+                                tooltip: 'Chat with Customer',
+                                color: const Color(0xFFF4A261),
+                              ),
+                              Positioned(
+                                right: 0,
+                                top: 0,
+                                child: UnreadMessageCount(
+                                  orderId: orderId,
+                                  userType: 'restaurant',
                                 ),
-                              );
-                            },
-                            tooltip: 'Chat with Customer',
-                            color: const Color(0xFFF4A261),
+                              ),
+                            ],
                           ),
-                          Positioned(
-                            right: 0,
-                            top: 0,
-                            child: UnreadMessageCount(
-                              orderId: orderId,
-                              userType: 'restaurant',
-                            ),
+                          // Group chat button
+                          Stack(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.group, size: 20),
+                                onPressed: () {
+                                  final customerName = order['customerName'] ?? 'Customer';
+                                  final driverName = order['driverName'] ?? 'Driver';
+                                  
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) => OrderGroupChatDialog(
+                                      orderId: orderId,
+                                      restaurantId: _user?.uid ?? '',
+                                      restaurantName: _nameController.text.isNotEmpty ? _nameController.text : 'Restaurant',
+                                      customerName: customerName,
+                                      driverName: driverName,
+                                    ),
+                                  );
+                                },
+                                tooltip: 'Group Chat',
+                                color: Colors.purple,
+                              ),
+                              Positioned(
+                                right: 0,
+                                top: 0,
+                                child: UnreadMessageCount(
+                                  orderId: orderId,
+                                  userType: 'restaurant',
+                                  isGroupChat: true,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    if (tip > 0) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          'Tip: \$${tip.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            color: Colors.green,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
                 const Divider(),
@@ -2369,5 +2393,275 @@ class _RestaurantPageState extends State<RestaurantPage> {
         ],
       ),
     );
+  }
+}
+
+class OrderGroupChatDialog extends StatefulWidget {
+  final String orderId;
+  final String restaurantId;
+  final String restaurantName;
+  final String customerName;
+  final String driverName;
+
+  const OrderGroupChatDialog({
+    Key? key,
+    required this.orderId,
+    required this.restaurantId,
+    required this.restaurantName,
+    required this.customerName,
+    required this.driverName,
+  }) : super(key: key);
+
+  @override
+  State<OrderGroupChatDialog> createState() => _OrderGroupChatDialogState();
+}
+
+class _OrderGroupChatDialogState extends State<OrderGroupChatDialog> {
+  final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final DatabaseReference _messagesRef = FirebaseDatabase.instance.ref().child('orders');
+  String? _restaurantName;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRestaurantName();
+  }
+
+  Future<void> _loadRestaurantName() async {
+    try {
+      final snapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(widget.restaurantId)
+          .child('store_info')
+          .child('name')
+          .get();
+
+      if (snapshot.exists && mounted) {
+        setState(() {
+          _restaurantName = snapshot.value?.toString();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading restaurant name: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  Future<void> _sendMessage() async {
+    if (_messageController.text.trim().isEmpty) return;
+
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final message = {
+      'message': _messageController.text.trim(),
+      'senderId': user.uid,
+      'senderType': 'restaurant'.toLowerCase(),
+      'senderName': _restaurantName ?? 'Restaurant',
+      'timestamp': ServerValue.timestamp,
+    };
+
+    try {
+      await _messagesRef
+          .child(widget.orderId)
+          .child('group_chat')
+          .push()
+          .set(message);
+
+      _messageController.clear();
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint('Error sending message: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Group Chat',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const Divider(),
+            Expanded(
+              child: StreamBuilder<DatabaseEvent>(
+                stream: _messagesRef
+                    .child(widget.orderId)
+                    .child('group_chat')
+                    .orderByChild('timestamp')
+                    .onValue,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snapshot.data?.snapshot.value == null) {
+                    return const Center(child: Text('No messages yet'));
+                  }
+
+                  List<MapEntry<dynamic, dynamic>> messageList = [];
+                  final data = snapshot.data!.snapshot.value;
+                  if (data is Map) {
+                    messageList = data.entries.toList()
+                      ..sort((a, b) => (a.value['timestamp'] ?? 0).compareTo(b.value['timestamp'] ?? 0));
+                  }
+
+                  WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+                  return ListView.builder(
+                    controller: _scrollController,
+                    itemCount: messageList.length,
+                    itemBuilder: (context, index) {
+                      final messageData = messageList[index].value as Map<dynamic, dynamic>;
+                      final isMe = messageData['senderId'] == _auth.currentUser?.uid;
+                      final senderType = (messageData['senderType']?.toString() ?? 'unknown').toLowerCase();
+                      final senderName = messageData['senderName']?.toString() ?? 'Unknown';
+                      final messageText = messageData['message']?.toString() ?? '';
+                      final timestamp = messageData['timestamp'] as int? ?? 0;
+
+                      Color bubbleColor;
+                      Color textColor;
+                      switch (senderType) {
+                        case 'restaurant':
+                          bubbleColor = Colors.blue[100]!;
+                          textColor = Colors.blue[900]!;
+                          break;
+                        case 'customer':
+                          bubbleColor = Colors.green[100]!;
+                          textColor = Colors.green[900]!;
+                          break;
+                        case 'driver':
+                          bubbleColor = Colors.orange[100]!;
+                          textColor = Colors.orange[900]!;
+                          break;
+                        default:
+                          bubbleColor = Colors.grey[200]!;
+                          textColor = Colors.grey[900]!;
+                      }
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        child: Column(
+                          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                          children: [
+                            if (!isMe) 
+                              Padding(
+                                padding: const EdgeInsets.only(left: 12, bottom: 4),
+                                child: Text(
+                                  senderName,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: textColor,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: bubbleColor,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    messageText,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _formatTimestamp(timestamp),
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            const Divider(),
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message...',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: null,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.send),
+                    onPressed: _sendMessage,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTimestamp(dynamic timestamp) {
+    if (timestamp == null) return '';
+    final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    return DateFormat('h:mm a').format(date);
   }
 } 

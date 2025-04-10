@@ -4,11 +4,13 @@ import 'package:firebase_database/firebase_database.dart';
 class UnreadMessageCount extends StatelessWidget {
   final String orderId;
   final String userType; // 'customer' or 'restaurant'
+  final bool isGroupChat; // Whether this is for group chat messages
 
   const UnreadMessageCount({
     Key? key,
     required this.orderId,
     required this.userType,
+    this.isGroupChat = false,
   }) : super(key: key);
 
   @override
@@ -18,7 +20,7 @@ class UnreadMessageCount extends StatelessWidget {
           .ref()
           .child('orders')
           .child(orderId)
-          .child('messages')
+          .child(isGroupChat ? 'group_chat' : 'messages')
           .onValue,
       builder: (context, snapshot) {
         // If there's an error or no data, don't show anything
