@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:intl/intl.dart';
+import '../../../widgets/unread_message_count.dart';
+import '../../../pages/order_chat_page.dart';
+import '../../../pages/restaurant_page.dart';
+// import '../../../pages/chat/order_group_chat_dialog.dart';
 
 class OrderManagementScreen extends StatefulWidget {
   const OrderManagementScreen({Key? key}) : super(key: key);
@@ -14,7 +18,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
   String _selectedStatus = 'All';
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
-  
+
   final List<String> _statusOptions = [
     'All',
     'pending',
@@ -54,7 +58,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
 
   String _formatTimestamp(dynamic timestamp) {
     if (timestamp == null) return 'N/A';
-    
+
     DateTime dateTime;
     if (timestamp is int) {
       dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
@@ -67,7 +71,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
     } else {
       return 'Invalid Date';
     }
-    
+
     return DateFormat('MMM dd, yyyy hh:mm a').format(dateTime);
   }
 
@@ -185,11 +189,11 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                   );
                 }
 
-                Map<dynamic, dynamic> ordersMap = 
-                    snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-                
+                Map<dynamic, dynamic> ordersMap =
+                snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+
                 List<Map<String, dynamic>> orders = [];
-                
+
                 ordersMap.forEach((key, value) {
                   final orderData = value as Map<dynamic, dynamic>;
                   orders.add({
@@ -232,8 +236,8 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                   itemBuilder: (context, index) {
                     final order = orders[index];
                     final status = order['order_status'] ?? 'pending';
-                    final total = order['total'] != null 
-                        ? (order['total'] as num).toDouble() 
+                    final total = order['total'] != null
+                        ? (order['total'] as num).toDouble()
                         : 0.0;
 
                     return Card(
@@ -303,7 +307,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
 
   Widget _buildStatusTracker(String currentStatus) {
     final currentStep = _statusOrder[currentStatus] ?? 0;
-    
+
     return Row(
       children: [
         for (int i = 0; i < 6; i++)
@@ -315,8 +319,8 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                   height: 20,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: i <= currentStep 
-                        ? _getStatusColor(_statusOptions[i + 1]) 
+                    color: i <= currentStep
+                        ? _getStatusColor(_statusOptions[i + 1])
                         : Colors.grey.shade300,
                   ),
                 ),
@@ -326,8 +330,8 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                     padding: const EdgeInsets.only(bottom: 4.0),
                     child: Container(
                       height: 2,
-                      color: i < currentStep 
-                          ? _getStatusColor(_statusOptions[i + 2]) 
+                      color: i < currentStep
+                          ? _getStatusColor(_statusOptions[i + 2])
                           : Colors.grey.shade300,
                     ),
                   ),
@@ -388,15 +392,15 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                           const Text('Pending', style: TextStyle(fontSize: 10)),
                           const Text('Accepted', style: TextStyle(fontSize: 10)),
                           Expanded(
-                            child: Text('Assigned', 
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 10)
+                            child: Text('Assigned',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontSize: 10)
                             ),
                           ),
                           Expanded(
-                            child: Text('Driver Accepted', 
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 9)
+                            child: Text('Driver Accepted',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontSize: 9)
                             ),
                           ),
                           const Text('Picked Up', style: TextStyle(fontSize: 10)),
@@ -439,7 +443,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                       ListTile(
                         title: const Text('Delivery Address'),
                         subtitle: Text(
-                          '${order['address']['street']}, ${order['address']['unit'] ?? ''}' 
+                            '${order['address']['street']}, ${order['address']['unit'] ?? ''}'
                         ),
                       ),
                     ],
@@ -554,6 +558,99 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    if (order['order_status'] == 'delivered') ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          // One-on-one chat button
+                          Stack(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.chat, size: 20),
+                                onPressed: () {
+                                  final customerId = order['customerId'] ?? order['userId'] ?? '';
+                                  final customerName = order['customerName'] ?? 'Customer';
+                                  final restaurantId = order['restaurantId'] ?? '';
+
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => OrderChatPage(
+                                        orderId: order['id'],
+                                        restaurantId: restaurantId,
+                                        restaurantName: 'Admin',
+                                        customerName: customerName,
+                                        userType: 'admin',
+                                      ),
+                                    ),
+                                  );
+                                },
+                                tooltip: 'Chat with Customer',
+                                color: const Color(0xFFF4A261),
+                              ),
+                              Positioned(
+                                right: 0,
+                                top: 0,
+                                child: UnreadMessageCount(
+                                  orderId: order['id'],
+                                  userType: 'admin',
+                                ),
+                              ),
+                            ],
+                          ),
+                          // Group chat button
+                          Stack(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.group, size: 20),
+                                onPressed: () async {
+                                  final restaurantId = order['restaurantId'] ?? '';
+
+                                  // Get restaurant name from store_info
+                                  final storeInfoSnapshot = await FirebaseDatabase.instance
+                                      .ref()
+                                      .child('restaurants')
+                                      .child(restaurantId)
+                                      .child('store_info')
+                                      .child('name')
+                                      .get();
+
+                                  final restaurantName = storeInfoSnapshot.value?.toString() ?? 'Restaurant';
+                                  final customerName = order['customerName'] ?? 'Customer';
+                                  final driverName = order['driverName'] ?? 'Driver';
+
+                                  if (mounted) {
+                                    showDialog(
+                                      context: context,
+                                      builder: (context) => OrderGroupChatDialog(
+                                        orderId: order['id'],
+                                        restaurantId: restaurantId,
+                                        restaurantName: restaurantName,
+                                        customerName: customerName,
+                                        driverName: driverName,
+                                        senderType: 'admin',
+                                      ),
+                                    );
+                                  }
+                                },
+                                tooltip: 'Group Chat',
+                                color: Colors.purple,
+                              ),
+                              Positioned(
+                                right: 0,
+                                top: 0,
+                                child: UnreadMessageCount(
+                                  orderId: order['id'],
+                                  userType: 'admin',
+                                  isGroupChat: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     ElevatedButton(
                       onPressed: () => _updateOrderStatus(order),
                       child: const Text('Update Order Status'),
@@ -575,7 +672,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
 
   void _updateOrderStatus(Map<String, dynamic> order) {
     String selectedStatus = order['order_status'] ?? 'pending';
-    
+
     showDialog(
       context: context,
       builder: (context) {
@@ -612,7 +709,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                     'order_status': selectedStatus,
                     'updatedAt': ServerValue.timestamp,
                   });
-                  
+
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
