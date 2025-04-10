@@ -1422,6 +1422,12 @@ class _CustomerPageState extends State<CustomerPage> {
                             tooltip: 'View Receipt',
                             color: const Color(0xFFF4A261),
                           ),
+                          IconButton(
+                            icon: const Icon(Icons.shopping_cart),
+                            onPressed: () => _handleReorder(Map<String, dynamic>.from(order)),
+                            tooltip: 'Reorder',
+                            color: Colors.green,
+                          ),
                           Stack(
                             children: [
                               IconButton(
@@ -2697,6 +2703,167 @@ class _CustomerPageState extends State<CustomerPage> {
         );
       }
     });
+  }
+
+  Widget _buildPastOrderItem(Map<String, dynamic> order) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  order['restaurant_name'] ?? 'Unknown Restaurant',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                _buildStatusChip(order['order_status'] ?? 'unknown'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Order #${order['order_id']}',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Total: \$${order['total_price']?.toStringAsFixed(2) ?? '0.00'}',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFF4A261),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Date: ${_formatDate(order['timestamp'])}',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () => _showOrderDetails(order),
+                  icon: const Icon(Icons.visibility),
+                  label: const Text('View Details'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF4A261),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _handleReorder(Map<String, dynamic>.from(order)),
+                  icon: const Icon(Icons.shopping_cart),
+                  label: const Text('Reorder'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleReorder(Map<String, dynamic> order) async {
+    try {
+      // Get order items
+      final orderItems = order['items'] as List<dynamic>? ?? [];
+      final restaurantId = order['restaurantId'] ?? '';
+
+      // Get restaurant name from Firebase
+      final restaurantSnapshot = await _database
+          .ref()
+          .child('restaurants')
+          .child(restaurantId)
+          .child('store_info')
+          .child('name')
+          .get();
+      
+      final restaurantName = restaurantSnapshot.value?.toString() ?? '';
+      
+      // Add each item to cart without removing existing items
+      for (var item in orderItems) {
+        final itemId = item['menuItemId'] ?? ''; // This is the same as item['id']
+        
+        await _database
+            .ref()
+            .child('customers')
+            .child(_auth.currentUser!.uid)
+            .child('cart')
+            .push()
+            .set({
+          'addedAt': ServerValue.timestamp,
+          'customizations': item['customizations'] ?? {},
+          'description': item['description'] ?? '',
+          'id': itemId,
+          'imageURL': item['imageURL'] ?? '',
+          'menuItemId': itemId,
+          'name': item['name'] ?? '',
+          'price': item['price'] ?? 0,
+          'quantity': item['quantity'] ?? 1,
+          'restaurantId': restaurantId,
+          'restaurantName': restaurantName,
+          'totalPrice': (item['price'] ?? 0) * (item['quantity'] ?? 1),
+        });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Items added to cart successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        // Navigate to cart tab
+        setState(() {
+          _selectedIndex = 2; // Cart tab index
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error reordering: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _formatDate(dynamic timestamp) {
+    if (timestamp is num) {
+      final DateTime dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp.toInt());
+      return '${dateTime.year}-${dateTime.month}-${dateTime.day}';
+    } else if (timestamp is String) {
+      final DateTime dateTime = DateTime.parse(timestamp);
+      return '${dateTime.year}-${dateTime.month}-${dateTime.day}';
+    } else {
+      throw Exception('Invalid timestamp format');
+    }
+  }
+
+  void _showOrderDetails(Map<String, dynamic> order) {
+    // Implement the logic to show order details
+    print('Viewing details for order: $order');
   }
 }
 
