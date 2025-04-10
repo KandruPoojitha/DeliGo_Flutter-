@@ -945,6 +945,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
                                       restaurantName: _nameController.text.isNotEmpty ? _nameController.text : 'Restaurant',
                                       customerName: customerName,
                                       driverName: driverName,
+                                      senderType: 'restaurant',
                                     ),
                                   );
                                 },
@@ -2402,6 +2403,7 @@ class OrderGroupChatDialog extends StatefulWidget {
   final String restaurantName;
   final String customerName;
   final String driverName;
+  final String senderType;
 
   const OrderGroupChatDialog({
     Key? key,
@@ -2410,6 +2412,7 @@ class OrderGroupChatDialog extends StatefulWidget {
     required this.restaurantName,
     required this.customerName,
     required this.driverName,
+    this.senderType = 'restaurant',
   }) : super(key: key);
 
   @override
@@ -2421,33 +2424,6 @@ class _OrderGroupChatDialogState extends State<OrderGroupChatDialog> {
   final ScrollController _scrollController = ScrollController();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final DatabaseReference _messagesRef = FirebaseDatabase.instance.ref().child('orders');
-  String? _restaurantName;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadRestaurantName();
-  }
-
-  Future<void> _loadRestaurantName() async {
-    try {
-      final snapshot = await FirebaseDatabase.instance
-          .ref()
-          .child('restaurants')
-          .child(widget.restaurantId)
-          .child('store_info')
-          .child('name')
-          .get();
-
-      if (snapshot.exists && mounted) {
-        setState(() {
-          _restaurantName = snapshot.value?.toString();
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading restaurant name: $e');
-    }
-  }
 
   @override
   void dispose() {
@@ -2475,8 +2451,8 @@ class _OrderGroupChatDialogState extends State<OrderGroupChatDialog> {
     final message = {
       'message': _messageController.text.trim(),
       'senderId': user.uid,
-      'senderType': 'restaurant'.toLowerCase(),
-      'senderName': _restaurantName ?? 'Restaurant',
+      'senderType': widget.senderType.toLowerCase(),
+      'senderName': widget.senderType.toLowerCase() == 'admin' ? 'Admin' : widget.restaurantName,
       'timestamp': ServerValue.timestamp,
     };
 
