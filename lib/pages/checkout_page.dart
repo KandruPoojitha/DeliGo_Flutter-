@@ -47,6 +47,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
   String _restaurantId = '';
   LatLng? _restaurantLocation;
   LatLng? _deliveryLocation;
+  DateTime? _scheduledDateTime;
 
   @override
   void initState() {
@@ -728,69 +729,28 @@ class _CheckoutPageState extends State<CheckoutPage> {
       // Get the first restaurant ID from cart items
       final firstItem = widget.cartItems.values.first as Map;
       final restaurantId = firstItem['restaurantId'];
+      
+      // Check if this is a scheduled order
+      final isScheduledOrder = firstItem['scheduledDateTime'] != null;
+      final scheduledDateTime = isScheduledOrder ? firstItem['scheduledDateTime'] as int : null;
 
       // Process items to match the required structure
-      debugPrint('🔍 DEBUG: Starting to process cart items');
       final List<Map<String, dynamic>> processedItems = [];
-
-      try {
-        for (var entry in widget.cartItems.entries) {
-          debugPrint('🔍 DEBUG: Processing item: ${entry.key}');
-          final item = Map<String, dynamic>.from(entry.value as Map);
-          
-          // Process customizations
-          Map<String, dynamic> processedCustomizations = {};
-          final customizations = item['customizations'];
-          
-          if (customizations != null) {
-            debugPrint('🔍 DEBUG: Raw customizations: $customizations');
-            
-            if (customizations is Map) {
-              customizations.forEach((key, value) {
-                debugPrint('🔍 DEBUG: Processing customization key: $key, value type: ${value.runtimeType}');
-                
-                try {
-                  if (value is List && value.isNotEmpty) {
-                    final customizationData = value.first as Map?;
-                    if (customizationData != null) {
-                      final selectedItems = customizationData['selectedItems'];
-                      debugPrint('🔍 DEBUG: Selected items type: ${selectedItems?.runtimeType}');
-                      
-                      processedCustomizations[key] = value;
-                    }
-                  }
-                } catch (e) {
-                  debugPrint('❌ ERROR processing customization: $e');
-                }
-              });
-            }
-          }
-
-          final processedItem = {
-            'customizations': processedCustomizations,
-            'description': item['description']?.toString() ?? '',
-            'id': const Uuid().v4().toUpperCase(),
-            'imageURL': item['imageURL']?.toString() ?? '',
-            'menuItemId': item['menuItemId']?.toString() ?? '',
-            'name': item['name']?.toString() ?? 'Unnamed Item',
-            'price': (item['price'] as num?)?.toDouble() ?? 0.0,
-            'quantity': (item['quantity'] as num?)?.toInt() ?? 1,
-            'specialInstructions': item['specialInstructions']?.toString() ?? '',
-            'totalPrice': (item['totalPrice'] as num?)?.toDouble() ?? 0.0,
-          };
-          
-          debugPrint('🔍 DEBUG: Processed item structure: $processedItem');
-          processedItems.add(processedItem);
-        }
-      } catch (e, stackTrace) {
-        debugPrint('❌ ERROR processing items: $e');
-        debugPrint('❌ Stack trace: $stackTrace');
-        throw Exception('Failed to process order items: $e');
+      for (var entry in widget.cartItems.entries) {
+        final item = entry.value as Map;
+        processedItems.add({
+          'id': item['id'],
+          'name': item['name'],
+          'description': item['description'] ?? '',
+          'price': item['price'],
+          'imageURL': item['imageURL'],
+          'menuItemId': item['menuItemId'],
+          'quantity': item['quantity'],
+          'totalPrice': item['totalPrice'],
+          'customizations': item['customizations'] ?? {},
+        });
       }
 
-      debugPrint('🔍 DEBUG: Final processed items count: ${processedItems.length}');
-
-      print('Debug: Creating order data');
       final orderData = {
         'address': _isDelivery ? {
           'instructions': _instructionsController.text,
@@ -804,10 +764,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
         'items': processedItems,
         'latitude': position.latitude,
         'longitude': position.longitude,
-        'order_status': 'pending',
+        'order_status': isScheduledOrder ? 'pending' : 'pending',
+        'status': isScheduledOrder ? 'scheduled' : 'pending',
         'paymentMethod': _selectedPaymentMethod,
         'restaurantId': restaurantId,
-        'status': 'pending',
         'subtotal': widget.subtotal,
         'discountPercentage': _discountPercentage,
         'discountAmount': _discountAmount,
@@ -820,69 +780,48 @@ class _CheckoutPageState extends State<CheckoutPage> {
         'customerId': userId,
         'customerPhone': customerPhone,
       };
-      print('Debug: Order data created: ${json.encode(orderData)}');
 
-      if (_selectedPaymentMethod == 'Card') {
-        print('Debug: Processing card payment');
-        // Navigate to payment screen
-        final bool? paymentResult = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => PaymentScreen(
-              amount: _totalAmount,
-              orderId: orderId,
-              orderData: orderData,
-            ),
-          ),
-        );
+      // Add scheduled date and time if it's a scheduled order
+      if (scheduledDateTime != null) {
+        orderData['scheduledDateTime'] = scheduledDateTime;
+      }
 
-        if (paymentResult == true) {
-          // Payment was successful, clear cart
-          await FirebaseDatabase.instance
-              .ref()
-              .child('customers')
-              .child(userId)
-              .child('cart')
-              .remove();
-
-          if (mounted) {
-            Navigator.pop(context); // Return to previous screen
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Order placed successfully!'),
-                duration: Duration(seconds: 4),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        }
-      } else {
-        // Cash on Delivery
-        final orderRef = FirebaseDatabase.instance
-            .ref()
-            .child('orders')
-            .child(orderId);
-
-        await orderRef.set(orderData);
-
-        // Clear cart
+      // Store the order in the appropriate reference
+      if (isScheduledOrder) {
+        // Store only in scheduled_orders for scheduled orders
         await FirebaseDatabase.instance
             .ref()
-            .child('customers')
-            .child(userId)
-            .child('cart')
-            .remove();
+            .child('scheduled_orders')
+            .child(orderId)
+            .set(orderData);
+      } else {
+        // Store regular orders in orders reference
+        await FirebaseDatabase.instance
+            .ref()
+            .child('orders')
+            .child(orderId)
+            .set(orderData);
+      }
 
-        if (mounted) {
-          Navigator.pop(context); // Return to previous screen
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Order placed successfully! Please pay on delivery.'),
-              duration: Duration(seconds: 4),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
+      // Clear the cart
+      await FirebaseDatabase.instance
+          .ref()
+          .child('customers')
+          .child(userId)
+          .child('cart')
+          .remove();
+
+      if (mounted) {
+        // Show success message and navigate back
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isScheduledOrder 
+              ? 'Order scheduled successfully!' 
+              : 'Order placed successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } catch (e) {
       if (mounted) {

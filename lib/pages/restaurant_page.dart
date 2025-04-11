@@ -22,6 +22,7 @@ import '../widgets/unread_message_count.dart';
 import 'sales_reports_page.dart';
 import 'best_selling_dishes_page.dart';
 import 'package:intl/intl.dart';
+import 'scheduled_orders_page.dart';
 
 class RestaurantPage extends StatefulWidget {
   const RestaurantPage({super.key});
@@ -62,6 +63,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
   final String _apiKey = 'AIzaSyDHujk0Z7p3_mjmPsicmn7T9iyQBC0ZqtU';
   bool _isLoading = false;
   late final Stream<DatabaseEvent> _ordersStream;
+  late final Stream<DatabaseEvent> _scheduledOrdersStream;
 
   @override
   void initState() {
@@ -70,6 +72,14 @@ class _RestaurantPageState extends State<RestaurantPage> {
     _ordersStream = FirebaseDatabase.instance
         .ref()
         .child('orders')
+        .orderByChild('restaurantId')
+        .equalTo(_user?.uid)
+        .onValue
+        .asBroadcastStream();
+        
+    _scheduledOrdersStream = FirebaseDatabase.instance
+        .ref()
+        .child('scheduled_orders')
         .orderByChild('restaurantId')
         .equalTo(_user?.uid)
         .onValue
@@ -1868,415 +1878,237 @@ class _RestaurantPageState extends State<RestaurantPage> {
   }
 
   Widget _buildAccountTab() {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Profile Section
-            Center(
-              child: Column(
-                children: [
-                  Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 50,
-                        backgroundColor: Colors.grey[200],
-                        backgroundImage: _restaurant?.profileImageUrl != null
-                            ? NetworkImage(_restaurant!.profileImageUrl!)
-                            : null,
-                        child: _restaurant?.profileImageUrl == null
-                            ? const Icon(Icons.restaurant, size: 50)
-                            : null,
-                      ),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: CircleAvatar(
-                          backgroundColor: const Color(0xFFF4A261),
-                          radius: 18,
-                          child: _isLoading
-                              ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                              : IconButton(
-                            icon: const Icon(Icons.camera_alt, size: 18),
-                            onPressed: _pickImage,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
+    return ListView(
+      children: [
+        const SizedBox(height: 16),
+        // Orders Management section
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            'ORDERS MANAGEMENT',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
             ),
-            const SizedBox(height: 32),
-
-            // Store Settings Main Section
-            Text(
-              'Store Settings',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).textTheme.titleLarge?.color,
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Store Information Button
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.store, color: Color(0xFFF4A261)),
-                title: const Text(
-                  'Store Information',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: const Text('Edit your store details, description, and contact information'),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const EditStoreInfoPage(),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Sales Reports Button
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.bar_chart, color: Color(0xFFF4A261)),
-                title: const Text(
-                  'Sales Reports',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: const Text('View your sales statistics and revenue analytics'),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const SalesReportsPage(),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Best Selling Dishes Button
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.trending_up, color: Color(0xFFF4A261)),
-                title: const Text(
-                  'Best Selling Dishes',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: const Text('View your most popular dishes and their sales performance'),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const BestSellingDishesPage(),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Store Hours Section
-            Card(
-              child: ExpansionTile(
-                title: const Text(
-                  'Store Hours',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                leading: const Icon(Icons.access_time),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: _businessHours.entries.map((entry) => Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Column(
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    entry.key,
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                  Switch(
-                                    value: entry.value['isOpen'] == true,
-                                    onChanged: (value) => _toggleDayOpen(entry.key),
-                                  ),
-                                ],
-                              ),
-                              if (entry.value['isOpen'] == true) ...[
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: TextButton.icon(
-                                        onPressed: () => _selectTime(context, entry.key, true),
-                                        icon: const Icon(Icons.access_time),
-                                        label: Text(entry.value['openTime']!),
-                                      ),
-                                    ),
-                                    const Text('to'),
-                                    Expanded(
-                                      child: TextButton.icon(
-                                        onPressed: () => _selectTime(context, entry.key, false),
-                                        icon: const Icon(Icons.access_time),
-                                        label: Text(entry.value['closeTime']!),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      )).toList(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Special Discount Section
-            Card(
-              child: ExpansionTile(
-                title: const Text(
-                  'Special Discount',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                leading: const Icon(Icons.discount, color: Color(0xFFF4A261)),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Set a discount percentage for all orders:',
-                          style: TextStyle(
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        StreamBuilder<DatabaseEvent>(
-                          stream: FirebaseDatabase.instance
-                              .ref()
-                              .child('restaurants')
-                              .child(_user!.uid)
-                              .child('discount')
-                              .onValue,
-                          builder: (context, snapshot) {
-                            int currentDiscount = 0;
-                            if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
-                              currentDiscount = (snapshot.data!.snapshot.value as int?) ?? 0;
-                            }
-                            
-                            return DropdownButtonFormField<int>(
-                              decoration: const InputDecoration(
-                                labelText: 'Discount Percentage',
-                                border: OutlineInputBorder(),
-                              ),
-                              value: currentDiscount,
-                              items: [0, 10, 20, 30, 40, 50].map((percentage) {
-                                return DropdownMenuItem<int>(
-                                  value: percentage,
-                                  child: Text(percentage == 0 ? 'No Discount' : '$percentage%'),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                if (value != null) {
-                                  _updateDiscount(value);
-                                }
-                              },
-                            );
-                          }
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Note: The discount will be applied automatically to all customer orders.',
-                          style: TextStyle(
-                            fontStyle: FontStyle.italic,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Support Section
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.support_agent, color: Color(0xFFF4A261)),
-                title: const Text(
-                  'Support',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () async {
-                  // Fetch restaurant name from store_info
-                  final storeInfoSnapshot = await FirebaseDatabase.instance
-                      .ref()
-                      .child('restaurants')
-                      .child(_user!.uid)
-                      .child('store_info')
-                      .child('name')
-                      .get();
-                      
-                  if (mounted) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => RestaurantChatPage(
-                          restaurantId: _user!.uid,
-                          restaurantName: storeInfoSnapshot.value?.toString() ?? 'Restaurant',
-                        ),
-                      ),
-                    );
-                  }
-                },
-              ),
-            ),
-            const SizedBox(height: 32),
-
-            // Appearance Main Section
-            Text(
-              'Appearance',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).textTheme.titleLarge?.color,
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Dark Mode Section
-            Card(
-              child: ExpansionTile(
-                title: Text(
-                  'Dark Mode',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).textTheme.titleMedium?.color,
-                  ),
-                ),
-                leading: Icon(
-                  Icons.dark_mode,
-                  color: Theme.of(context).textTheme.titleMedium?.color,
-                ),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: SwitchListTile(
-                      title: Text(
-                        'Enable Dark Mode',
-                        style: TextStyle(
-                          color: Theme.of(context).textTheme.bodyLarge?.color,
-                        ),
-                      ),
-                      value: themeProvider.isDarkMode,
-                      onChanged: (value) {
-                        themeProvider.toggleTheme();
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Language Section
-            Card(
-              child: ExpansionTile(
-                title: const Text(
-                  'Language',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                leading: const Icon(Icons.language),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: SwitchListTile(
-                      title: const Text('English'),
-                      subtitle: Text(_isEnglish ? 'English' : 'French'),
-                      value: _isEnglish,
-                      onChanged: (value) {
-                        setState(() {
-                          _isEnglish = value;
-                        });
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-
-            // Sign Out Button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _signOut,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: const Text('Sign Out'),
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.schedule),
+            title: const Text('Scheduled Orders'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ScheduledOrdersPage(),
+                ),
+              );
+            },
+          ),
+        ),
+        // Restaurant Management section
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            'RESTAURANT MANAGEMENT',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
+            ),
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.store),
+            title: const Text('Store Information'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const EditStoreInfoPage(),
+                ),
+              );
+            },
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.bar_chart),
+            title: const Text('Sales Reports'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SalesReportsPage(),
+                ),
+              );
+            },
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.trending_up),
+            title: const Text('Best Selling Dishes'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const BestSellingDishesPage(),
+                ),
+              );
+            },
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.access_time),
+            title: const Text('Store Hours'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              // Implement store hours editing functionality
+            },
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.discount),
+            title: const Text('Special Discount'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              // Implement special discount editing functionality
+            },
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.support_agent),
+            title: const Text('Support'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              // Fetch restaurant name from store_info
+              final storeInfoSnapshot = await FirebaseDatabase.instance
+                  .ref()
+                  .child('restaurants')
+                  .child(_user!.uid)
+                  .child('store_info')
+                  .child('name')
+                  .get();
+                      
+              if (mounted) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => RestaurantChatPage(
+                      restaurantId: _user!.uid,
+                      restaurantName: storeInfoSnapshot.value?.toString() ?? 'Restaurant',
+                    ),
+                  ),
+                );
+              }
+            },
+          ),
+        ),
+        const SizedBox(height: 32),
+        // Appearance Main Section
+        Text(
+          'Appearance',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).textTheme.titleLarge?.color,
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Dark Mode Section
+        Card(
+          child: ExpansionTile(
+            title: Text(
+              'Dark Mode',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).textTheme.titleMedium?.color,
+              ),
+            ),
+            leading: Icon(
+              Icons.dark_mode,
+              color: Theme.of(context).textTheme.titleMedium?.color,
+            ),
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: SwitchListTile(
+                  title: Text(
+                    'Enable Dark Mode',
+                    style: TextStyle(
+                      color: Theme.of(context).textTheme.bodyLarge?.color,
+                    ),
+                  ),
+                  value: Provider.of<ThemeProvider>(context).isDarkMode,
+                  onChanged: (value) {
+                    Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Language Section
+        Card(
+          child: ExpansionTile(
+            title: const Text(
+              'Language',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            leading: const Icon(Icons.language),
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: SwitchListTile(
+                  title: const Text('English'),
+                  subtitle: Text(_isEnglish ? 'English' : 'French'),
+                  value: _isEnglish,
+                  onChanged: (value) {
+                    setState(() {
+                      _isEnglish = value;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 32),
+        // Sign Out Button
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _signOut,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            child: const Text('Sign Out'),
+          ),
+        ),
+      ],
     );
   }
 

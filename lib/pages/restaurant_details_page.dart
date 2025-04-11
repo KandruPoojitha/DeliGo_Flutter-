@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/cart_service.dart';
+import '../widgets/schedule_order_dialog.dart';
 import 'restaurant_reviews_page.dart';
 
 class MenuItemDetailsDialog extends StatefulWidget {
@@ -26,6 +27,7 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
   double basePrice = 0;
   double totalPrice = 0;
   Map<String, bool> selectedCustomizations = {};
+  DateTime? _scheduledDateTime;
 
   String _getPriceRangeText(Map<String, dynamic> item) {
     final price = item['price']?.toDouble() ?? 0.0;
@@ -142,6 +144,41 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
         'addedAt': ServerValue.timestamp,
       };
 
+      // Check if restaurant is open
+      final restaurantSnapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(widget.restaurantId)
+          .get();
+
+      if (restaurantSnapshot.exists) {
+        final restaurantData = restaurantSnapshot.value as Map<dynamic, dynamic>;
+        final isOpen = restaurantData['isOpen'] == true;
+
+        if (!isOpen && mounted) {
+          // Show scheduling dialog
+          await showDialog(
+            context: context,
+            builder: (context) => ScheduleOrderDialog(
+              restaurantName: widget.restaurantName,
+              onSchedule: (scheduledDateTime) {
+                setState(() {
+                  _scheduledDateTime = scheduledDateTime;
+                });
+              },
+            ),
+          );
+
+          // If user didn't select a time, cancel the order
+          if (_scheduledDateTime == null) {
+            return;
+          }
+
+          // Add scheduled time to cart item
+          cleanItemData['scheduledDateTime'] = _scheduledDateTime!.millisecondsSinceEpoch;
+        }
+      }
+
       await _cartService.addToCart(
         cleanItemData,
         widget.restaurantId,
@@ -151,7 +188,11 @@ class _MenuItemDetailsDialogState extends State<MenuItemDetailsDialog> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Added to cart')),
+          SnackBar(
+            content: Text(_scheduledDateTime != null 
+              ? 'Item added to cart (Scheduled)' 
+              : 'Added to cart'),
+          ),
         );
       }
     } catch (e) {

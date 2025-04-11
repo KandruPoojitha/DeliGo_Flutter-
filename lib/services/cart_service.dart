@@ -70,6 +70,11 @@ class CartService {
         'addedAt': ServerValue.timestamp,
       };
       
+      // Add scheduledDateTime if it exists
+      if (menuItem['scheduledDateTime'] != null) {
+        cartItem['scheduledDateTime'] = menuItem['scheduledDateTime'];
+      }
+      
       // Only add customizations if they exist in the expected format
       if (menuItem['customizations'] != null) {
         final cleanCustomizations = <String, dynamic>{};
@@ -117,7 +122,8 @@ class CartService {
           .child(cartItemId)
           .set(cartItem);
     } catch (e) {
-      throw Exception('Failed to add item to cart: $e');
+      print('Error adding to cart: $e');
+      rethrow;
     }
   }
 
