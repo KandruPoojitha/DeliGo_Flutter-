@@ -23,8 +23,8 @@ class PaymentScreen extends StatefulWidget {
 }
 
 class _PaymentScreenState extends State<PaymentScreen> {
-  final String publishableKey = "pk_test_51QycXpPFig18ZUMzhwJmZJPMw7ONj9nxCxbr4zwbIzGo9psQgLM9CQZVSuLNNupCPB6lCNLg0NRNz5Q0mwQ7Fqtw005Mf77ZUV";
-  final String secretKey = "sk_test_51QycXpPFig18ZUMzerj6NO759gulhbh13B9c4DOrsACNwPzABh4psVJudzEIjrPTn7wURMQufxdFrnMcBoZuLwVy00vY2lQpy3";
+  final String publishableKey = "pk_test_51PlVh8P9Bz7XrwZPnWMN2upZk3x00s3soZgJgM5QTMuwCNoZPBdGtmPRXB29vBnFvOXjEAv2vntLuQaWbPpEHOmP00D7pelv0B";
+  final String secretKey = "sk_test_51PlVh8P9Bz7XrwZPWSkDzX7AmaNgVr04yPOQWnbAECiYSWKtsmmVgD2Z8JYBY8a5dmEfKXaTewrBESb3fxIliwDo00HdJmKBKz";
   final String customersUrl = "https://api.stripe.com/v1/customers";
   final String ephemeralKeyUrl = "https://api.stripe.com/v1/ephemeral_keys";
   final String clientSecretUrl = "https://api.stripe.com/v1/payment_intents";

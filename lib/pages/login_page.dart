@@ -121,6 +121,38 @@ class _LoginPageState extends State<LoginPage> {
                     return;
                   }
                 }
+              } else if (userRole == 'customer') {
+                // Check if customer is blocked
+                final snapshot = await FirebaseDatabase.instance
+                    .ref()
+                    .child('customers')
+                    .child(user.uid)
+                    .get();
+                
+                if (snapshot.exists) {
+                  final userData = snapshot.value as Map<dynamic, dynamic>;
+                  final isBlocked = userData['blocked'] == true;
+                  
+                  if (isBlocked) {
+                    // Sign out the user immediately
+                    await _auth.signOut();
+                    
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Your account has been blocked. Please contact support for assistance.',
+                          ),
+                          backgroundColor: Colors.red,
+                          duration: Duration(seconds: 5),
+                        ),
+                      );
+                      // No need to navigate as we're already on the login page
+                      setState(() => _isLoading = false);
+                      return;
+                    }
+                  }
+                }
               }
               
               // Redirect to role-specific page

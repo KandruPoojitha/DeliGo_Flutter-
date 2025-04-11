@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter/services.dart';
 import 'login_page.dart';
 import 'restaurant_details_page.dart';
 import 'checkout_page.dart';
@@ -10,6 +11,8 @@ import 'edit_customer_profile_page.dart';
 import 'receipt_screen.dart';
 import 'order_chat_page.dart';
 import '../widgets/unread_message_count.dart';
+import '../services/notification_service.dart';
+// import 'package:share_plus/share_plus.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -28,17 +31,55 @@ class _CustomerPageState extends State<CustomerPage> {
   bool _isLoadingLocation = false;
   List<MapEntry> _filteredRestaurants = [];
   String _sortBy = 'none';
+  final _notificationService = NotificationService();
 
   @override
   void initState() {
     super.initState();
     _getCurrentLocation();
+    _setupOrderStatusListeners();
+    _listenForNewOrders();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _notificationService.cancelAllOrderStatusListeners();
     super.dispose();
+  }
+
+  Future<void> _setupOrderStatusListeners() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    try {
+      final ordersSnapshot = await _database
+          .ref()
+          .child('orders')
+          .orderByChild('customerId')
+          .equalTo(userId)
+          .get();
+
+      if (!ordersSnapshot.exists) return;
+
+      final orders = ordersSnapshot.value as Map<dynamic, dynamic>;
+      for (final entry in orders.entries) {
+        final order = entry.value as Map<dynamic, dynamic>;
+        final orderId = entry.key as String;
+        final orderStatus = order['order_status'] as String?;
+
+        // Only set up listeners for pending orders
+        if (orderStatus == 'pending') {
+          _notificationService.listenForOrderStatusChanges(
+            orderId: orderId,
+            userId: userId,
+            context: context,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error setting up order status listeners: $e');
+    }
   }
 
   Future<void> _getCurrentLocation() async {
@@ -581,6 +622,28 @@ class _CustomerPageState extends State<CustomerPage> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
+                              // Display discount if available
+                              if (restaurant['discount'] != null && (restaurant['discount'] as int) > 0) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.discount,
+                                      size: 14,
+                                      color: Colors.green,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${restaurant['discount']}% OFF',
+                                      style: const TextStyle(
+                                        color: Colors.green,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ),
                         ],
@@ -1232,6 +1295,27 @@ class _CustomerPageState extends State<CustomerPage> {
       );
     }
 
+    // Set up notifications for pending orders
+    if (!isPastOrders) {
+      final userId = _auth.currentUser?.uid;
+      if (userId != null) {
+        for (final entry in orders) {
+          final order = entry.value as Map<dynamic, dynamic>;
+          final orderId = entry.key as String;
+          final orderStatus = order['order_status'] as String?;
+          
+          // Only set up listeners for pending orders
+          if (orderStatus == 'pending') {
+            _notificationService.listenForOrderStatusChanges(
+              orderId: orderId,
+              userId: userId,
+              context: context,
+            );
+          }
+        }
+      }
+    }
+
     if (isPastOrders) {
       // Sort past orders by date (newest first)
       orders.sort((a, b) {
@@ -1338,6 +1422,12 @@ class _CustomerPageState extends State<CustomerPage> {
                             tooltip: 'View Receipt',
                             color: const Color(0xFFF4A261),
                           ),
+                          IconButton(
+                            icon: const Icon(Icons.shopping_cart),
+                            onPressed: () => _handleReorder(Map<String, dynamic>.from(order)),
+                            tooltip: 'Reorder',
+                            color: Colors.green,
+                          ),
                           Stack(
                             children: [
                               IconButton(
@@ -1365,6 +1455,64 @@ class _CustomerPageState extends State<CustomerPage> {
                                 child: UnreadMessageCount(
                                   orderId: orderId,
                                   userType: 'customer',
+                                ),
+                              ),
+                            ],
+                          ),
+                          Stack(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.group),
+                                onPressed: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) => OrderGroupChatDialog(
+                                      orderId: orderId,
+                                      customerId: _auth.currentUser?.uid ?? '',
+                                      customerName: _auth.currentUser?.displayName ?? 'Customer',
+                                      restaurantName: restaurantName,
+                                      driverName: order['driverName'] ?? 'Driver',
+                                    ),
+                                  );
+                                },
+                                tooltip: 'Group Chat',
+                                color: Colors.purple,
+                              ),
+                              Positioned(
+                                right: 5,
+                                top: 5,
+                                child: StreamBuilder<DatabaseEvent>(
+                                  stream: FirebaseDatabase.instance
+                                      .ref()
+                                      .child('orders')
+                                      .child(orderId)
+                                      .child('group_chat')
+                                      .onValue,
+                                  builder: (context, snapshot) {
+                                    if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final messages = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                                    return Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 14,
+                                        minHeight: 14,
+                                      ),
+                                      child: Text(
+                                        messages.length.toString(),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 8,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                             ],
@@ -1400,6 +1548,91 @@ class _CustomerPageState extends State<CustomerPage> {
                           "Instructions: $instructions",
                           style: const TextStyle(fontSize: 14),
                         ),
+                      ),
+                    ],
+                  ),
+                ],
+                
+                // Driver chat option for picked_up orders
+                if (!isPastOrders && orderStatus == 'picked_up' && driverId != null) ...[
+                  const Divider(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      StreamBuilder<DatabaseEvent>(
+                        stream: FirebaseDatabase.instance
+                            .ref()
+                            .child('drivers')
+                            .child(driverId)
+                            .onValue,
+                        builder: (context, snapshot) {
+                          String driverName = 'Driver';
+                          
+                          if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+                            final driverData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                            driverName = driverData['fullName'] ?? 'Driver';
+                          }
+                          
+                          return ElevatedButton.icon(
+                            icon: StreamBuilder<DatabaseEvent>(
+                              stream: FirebaseDatabase.instance
+                                  .ref()
+                                  .child('orders')
+                                  .child(orderId)
+                                  .child('driver_customer_messages')
+                                  .onValue,
+                              builder: (context, snapshot) {
+                                int messageCount = 0;
+                                if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+                                  final data = snapshot.data!.snapshot.value as Map<dynamic, dynamic>?;
+                                  if (data != null) {
+                                    messageCount = data.length;
+                                  }
+                                }
+                                
+                                return Stack(
+                                  children: [
+                                    const Icon(Icons.delivery_dining),
+                                    if (messageCount > 0)
+                                      Positioned(
+                                        right: -2,
+                                        top: -2,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red,
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 14,
+                                            minHeight: 14,
+                                          ),
+                                          child: Text(
+                                            messageCount.toString(),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 8,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                );
+                              },
+                            ),
+                            label: Text('Chat with $driverName'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () => _openChatWithDriver(
+                              orderId,
+                              driverId,
+                              driverName,
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -2126,6 +2359,59 @@ class _CustomerPageState extends State<CustomerPage> {
           ),
           const SizedBox(height: 16),
           
+          // Share App Card
+          Card(
+            elevation: 2,
+            child: InkWell(
+              onTap: () {
+                _showShareAppDialog();
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4A261).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.share,
+                        color: Color(0xFFF4A261),
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Share App',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Invite friends to use DeliGo',
+                            style: TextStyle(
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
           // Logout Button
           SizedBox(
             width: double.infinity,
@@ -2147,22 +2433,21 @@ class _CustomerPageState extends State<CustomerPage> {
 
   Widget _buildInfoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          SizedBox(
-            width: 120,
-            child: Text(
+          Text(
               label,
               style: const TextStyle(
-                fontWeight: FontWeight.bold,
                 color: Colors.grey,
               ),
             ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
           ),
-          Expanded(
-            child: Text(value),
           ),
         ],
       ),
@@ -2185,6 +2470,211 @@ class _CustomerPageState extends State<CustomerPage> {
     }
     
     return '$dollarSigns \$$min-$max';
+  }
+
+  void _showShareAppDialog() {
+    final String appLink = 'https://play.google.com/store/apps/details?id=com.deligo.app';
+    final String shareMessage = 'Hey! I\'ve been using DeliGo for food delivery and it\'s amazing! Give it a try: $appLink';
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.share, color: Color(0xFFF4A261)),
+            const SizedBox(width: 8),
+            const Text('Share DeliGo'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Copy the link or message and share it with your friends and family:',
+                style: TextStyle(
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        appLink,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: appLink));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Link copied to clipboard'),
+                            backgroundColor: Color(0xFFF4A261),
+                          ),
+                        );
+                        Navigator.pop(context);
+                      },
+                      tooltip: 'Copy to clipboard',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Copy text for:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Email
+                  _buildShareOption(
+                    icon: Icons.email,
+                    label: 'Email',
+                    color: Colors.red,
+                    onTap: () => _shareViaEmail(shareMessage),
+                  ),
+                  // WhatsApp
+                  _buildShareOption(
+                    icon: Icons.chat_bubble,
+                    label: 'WhatsApp',
+                    color: Colors.green,
+                    onTap: () => _launchURL('whatsapp://send?text=${Uri.encodeComponent(shareMessage)}'),
+                  ),
+                  // SMS
+                  _buildShareOption(
+                    icon: Icons.sms,
+                    label: 'SMS',
+                    color: Colors.blue,
+                    onTap: () => _launchURL('sms:?body=${Uri.encodeComponent(shareMessage)}'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Twitter/X
+                  _buildShareOption(
+                    icon: Icons.message,
+                    label: 'Twitter',
+                    color: Colors.lightBlue,
+                    onTap: () => _launchURL('https://twitter.com/intent/tweet?text=${Uri.encodeComponent(shareMessage)}'),
+                  ),
+                  // Facebook
+                  _buildShareOption(
+                    icon: Icons.thumb_up,
+                    label: 'Facebook',
+                    color: Colors.indigo,
+                    onTap: () => _launchURL('https://www.facebook.com/sharer/sharer.php?u=${Uri.encodeComponent(appLink)}'),
+                  ),
+                  // Instagram
+                  _buildShareOption(
+                    icon: Icons.camera_alt,
+                    label: 'Instagram',
+                    color: Colors.purple,
+                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Copy the link and share on Instagram'),
+                        backgroundColor: Color(0xFFF4A261),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShareOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: () {
+        Navigator.pop(context);
+        onTap();
+      },
+      child: Column(
+        children: [
+          CircleAvatar(
+            backgroundColor: color.withOpacity(0.2),
+            radius: 22,
+            child: Icon(icon, color: color),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Copy for $label',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _shareViaEmail(String message) {
+    final String emailText = 'Subject: Check out DeliGo Food Delivery App\n\n$message';
+    Clipboard.setData(ClipboardData(text: emailText));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Email text copied to clipboard. Paste it in your email app.'),
+          backgroundColor: Color(0xFFF4A261),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  void _launchURL(String urlString) async {
+    try {
+      // Due to platform-specific issues, we'll use clipboard instead
+      Clipboard.setData(ClipboardData(text: urlString));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Link copied to clipboard: $urlString'),
+            backgroundColor: const Color(0xFFF4A261),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -2227,8 +2717,455 @@ class _CustomerPageState extends State<CustomerPage> {
       ),
     );
   }
+
+  // Method to open the chat dialog with driver
+  void _openChatWithDriver(String orderId, String driverId, String driverName) {
+    showDialog(
+      context: context,
+      builder: (context) => CustomerDriverChatDialog(
+        orderId: orderId,
+        driverId: driverId,
+        driverName: driverName,
+        customerId: FirebaseAuth.instance.currentUser?.uid ?? '',
+        customerName: FirebaseAuth.instance.currentUser?.displayName ?? 'Customer',
+      ),
+    );
+  }
+
+  Future<void> _listenForNewOrders() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    // Listen for new orders
+    _database
+        .ref()
+        .child('orders')
+        .orderByChild('customerId')
+        .equalTo(userId)
+        .onChildAdded
+        .listen((event) {
+      if (!event.snapshot.exists) return;
+
+      final order = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (order == null) return;
+
+      final orderId = event.snapshot.key as String;
+      final orderStatus = order['order_status'] as String?;
+
+      // Set up listener for pending orders
+      if (orderStatus == 'pending') {
+        _notificationService.listenForOrderStatusChanges(
+          orderId: orderId,
+          userId: userId,
+          context: context,
+        );
+      }
+    });
+  }
+
+  Widget _buildPastOrderItem(Map<String, dynamic> order) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  order['restaurant_name'] ?? 'Unknown Restaurant',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                _buildStatusChip(order['order_status'] ?? 'unknown'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Order #${order['order_id']}',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Total: \$${order['total_price']?.toStringAsFixed(2) ?? '0.00'}',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFF4A261),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Date: ${_formatDate(order['timestamp'])}',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () => _showOrderDetails(order),
+                  icon: const Icon(Icons.visibility),
+                  label: const Text('View Details'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF4A261),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _handleReorder(Map<String, dynamic>.from(order)),
+                  icon: const Icon(Icons.shopping_cart),
+                  label: const Text('Reorder'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleReorder(Map<String, dynamic> order) async {
+    try {
+      // Get order items
+      final orderItems = order['items'] as List<dynamic>? ?? [];
+      final restaurantId = order['restaurantId'] ?? '';
+
+      // Get restaurant name from Firebase
+      final restaurantSnapshot = await _database
+          .ref()
+          .child('restaurants')
+          .child(restaurantId)
+          .child('store_info')
+          .child('name')
+          .get();
+      
+      final restaurantName = restaurantSnapshot.value?.toString() ?? '';
+      
+      // Add each item to cart without removing existing items
+      for (var item in orderItems) {
+        final itemId = item['menuItemId'] ?? ''; // This is the same as item['id']
+        
+        await _database
+            .ref()
+            .child('customers')
+            .child(_auth.currentUser!.uid)
+            .child('cart')
+            .push()
+            .set({
+          'addedAt': ServerValue.timestamp,
+          'customizations': item['customizations'] ?? {},
+          'description': item['description'] ?? '',
+          'id': itemId,
+          'imageURL': item['imageURL'] ?? '',
+          'menuItemId': itemId,
+          'name': item['name'] ?? '',
+          'price': item['price'] ?? 0,
+          'quantity': item['quantity'] ?? 1,
+          'restaurantId': restaurantId,
+          'restaurantName': restaurantName,
+          'totalPrice': (item['price'] ?? 0) * (item['quantity'] ?? 1),
+        });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Items added to cart successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        // Navigate to cart tab
+        setState(() {
+          _selectedIndex = 2; // Cart tab index
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error reordering: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _formatDate(dynamic timestamp) {
+    if (timestamp is num) {
+      final DateTime dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp.toInt());
+      return '${dateTime.year}-${dateTime.month}-${dateTime.day}';
+    } else if (timestamp is String) {
+      final DateTime dateTime = DateTime.parse(timestamp);
+      return '${dateTime.year}-${dateTime.month}-${dateTime.day}';
+    } else {
+      throw Exception('Invalid timestamp format');
+    }
+  }
+
+  void _showOrderDetails(Map<String, dynamic> order) {
+    // Implement the logic to show order details
+    print('Viewing details for order: $order');
+  }
 }
 
+// Dialog for customer to chat with driver
+class CustomerDriverChatDialog extends StatefulWidget {
+  final String orderId;
+  final String driverId;
+  final String driverName;
+  final String customerId;
+  final String customerName;
+
+  const CustomerDriverChatDialog({
+    Key? key,
+    required this.orderId,
+    required this.driverId,
+    required this.driverName,
+    required this.customerId,
+    required this.customerName,
+  }) : super(key: key);
+
+  @override
+  _CustomerDriverChatDialogState createState() => _CustomerDriverChatDialogState();
+}
+
+class _CustomerDriverChatDialogState extends State<CustomerDriverChatDialog> {
+  final TextEditingController _messageController = TextEditingController();
+  late Stream<DatabaseEvent> _messagesStream;
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Set up the stream for driver-customer messages within the orders reference
+    _messagesStream = FirebaseDatabase.instance
+        .ref()
+        .child('orders')
+        .child(widget.orderId)
+        .child('driver_customer_messages')
+        .onValue;
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
+    final message = _messageController.text.trim();
+    if (message.isEmpty) return;
+
+    setState(() => _sending = true);
+
+    try {
+      // Create a new message entry under the specific order
+      final ref = FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .child(widget.orderId)
+          .child('driver_customer_messages')
+          .push();
+
+      await ref.set({
+        'message': message,
+        'senderId': widget.customerId,
+        'senderName': widget.customerName,
+        'senderType': 'customer',  // Changed to lowercase
+        'timestamp': ServerValue.timestamp,
+        'driverId': widget.driverId,
+      });
+
+      // Clear the message field
+      _messageController.clear();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error sending message: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+          maxWidth: MediaQuery.of(context).size.width * 0.9,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Chat with ${widget.driverName}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // Messages list
+            Expanded(
+              child: StreamBuilder<DatabaseEvent>(
+                stream: _messagesStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error: ${snapshot.error}'));
+                  }
+
+                  final messagesData = snapshot.data?.snapshot.value;
+                  if (messagesData == null) {
+                    return const Center(child: Text('No messages yet'));
+                  }
+
+                  final List<Map<String, dynamic>> messages = [];
+                  
+                  // Convert the Firebase data structure to a list
+                  if (messagesData is Map<dynamic, dynamic>) {
+                    messagesData.forEach((key, value) {
+                      if (value is Map) {
+                        final message = Map<String, dynamic>.from(value);
+                        message['id'] = key;
+                        messages.add(message);
+                      }
+                    });
+                  } else {
+                    return const Center(child: Text('No messages yet'));
+                  }
+                  
+                  // Sort by timestamp
+                  messages.sort((a, b) {
+                    final timestampA = a['timestamp'] as int? ?? 0;
+                    final timestampB = b['timestamp'] as int? ?? 0;
+                    return timestampA.compareTo(timestampB);
+                  });
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(8),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final message = messages[index];
+                      final isCustomer = message['senderType'] == 'customer';
+                      final timestamp = message['timestamp'] as int? ?? 0;
+                      final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+                      
+                      return Align(
+                        alignment: isCustomer ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isCustomer ? Colors.blue[100] : Colors.grey[200],
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.6,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(message['message'] as String? ?? ''),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            // Message input
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message...',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      ),
+                      maxLines: 3,
+                      minLines: 1,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _sendMessage(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send, color: Colors.blue),
+                    onPressed: _sending ? null : _sendMessage,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+} 
+
+// Dialog for customizing menu items
 class CustomizationDialog extends StatefulWidget {
   final Map item;
   final String itemId;
@@ -2319,6 +3256,285 @@ class _CustomizationDialogState extends State<CustomizationDialog> {
           child: const Text('Save'),
         ),
       ],
+    );
+  }
+} 
+
+// Add this new class at the end of the file
+class OrderGroupChatDialog extends StatefulWidget {
+  final String orderId;
+  final String customerId;
+  final String customerName;
+  final String restaurantName;
+  final String driverName;
+
+  const OrderGroupChatDialog({
+    Key? key,
+    required this.orderId,
+    required this.customerId,
+    required this.customerName,
+    required this.restaurantName,
+    required this.driverName,
+  }) : super(key: key);
+
+  @override
+  _OrderGroupChatDialogState createState() => _OrderGroupChatDialogState();
+}
+
+class _OrderGroupChatDialogState extends State<OrderGroupChatDialog> {
+  final TextEditingController _messageController = TextEditingController();
+  late Stream<DatabaseEvent> _messagesStream;
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _messagesStream = FirebaseDatabase.instance
+        .ref()
+        .child('orders')
+        .child(widget.orderId)
+        .child('group_chat')
+        .onValue;
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
+    final message = _messageController.text.trim();
+    if (message.isEmpty) return;
+
+    setState(() => _sending = true);
+
+    try {
+      // Get customer's full name from Firebase
+      final customerSnapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('customers')
+          .child(widget.customerId)
+          .child('fullName')
+          .get();
+      
+      final customerName = customerSnapshot.value?.toString() ?? 'Customer';
+
+      final ref = FirebaseDatabase.instance
+          .ref()
+          .child('orders')
+          .child(widget.orderId)
+          .child('group_chat')
+          .push();
+
+      await ref.set({
+        'message': message,
+        'senderId': widget.customerId,
+        'senderName': customerName,
+        'senderType': 'customer',  // Changed to lowercase
+        'timestamp': ServerValue.timestamp,
+      });
+
+      _messageController.clear();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sending message: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+          maxWidth: MediaQuery.of(context).size.width * 0.9,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Group Chat',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Order #${widget.orderId}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: StreamBuilder<DatabaseEvent>(
+                stream: _messagesStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error: ${snapshot.error}'));
+                  }
+
+                  final messagesData = snapshot.data?.snapshot.value;
+                  if (messagesData == null) {
+                    return const Center(child: Text('No messages yet'));
+                  }
+
+                  final List<Map<String, dynamic>> messages = [];
+                  
+                  if (messagesData is Map<dynamic, dynamic>) {
+                    messagesData.forEach((key, value) {
+                      if (value is Map) {
+                        final message = Map<String, dynamic>.from(value);
+                        message['id'] = key;
+                        messages.add(message);
+                      }
+                    });
+                  }
+
+                  messages.sort((a, b) {
+                    final timestampA = a['timestamp'] as int? ?? 0;
+                    final timestampB = b['timestamp'] as int? ?? 0;
+                    return timestampA.compareTo(timestampB);
+                  });
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(8),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final message = messages[index];
+                      final isCurrentUser = message['senderId'] == widget.customerId;
+                      final senderType = message['senderType'] as String? ?? '';
+                      final senderName = message['senderName'] as String? ?? 'Unknown';
+                      final timestamp = message['timestamp'] as int? ?? 0;
+                      final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+
+                      Color bubbleColor;
+                      switch (senderType.toLowerCase()) {  // Convert to lowercase for comparison
+                        case 'customer':
+                          bubbleColor = Colors.blue[100]!;
+                          break;
+                        case 'driver':
+                          bubbleColor = Colors.green[100]!;
+                          break;
+                        case 'restaurant':
+                          bubbleColor = Colors.orange[100]!;
+                          break;
+                        default:
+                          bubbleColor = Colors.grey[200]!;
+                      }
+
+                      return Align(
+                        alignment: isCurrentUser ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: bubbleColor,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.6,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                senderName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(message['message'] as String? ?? ''),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message...',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      ),
+                      maxLines: 3,
+                      minLines: 1,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _sendMessage(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send, color: Colors.blue),
+                    onPressed: _sending ? null : _sendMessage,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 } 

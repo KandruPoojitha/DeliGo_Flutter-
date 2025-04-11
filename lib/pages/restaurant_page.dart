@@ -19,6 +19,10 @@ import '../pages/restaurant_chat_page.dart';
 import 'edit_store_info_page.dart';
 import 'order_chat_page.dart';
 import '../widgets/unread_message_count.dart';
+import 'sales_reports_page.dart';
+import 'best_selling_dishes_page.dart';
+import 'package:intl/intl.dart';
+import 'scheduled_orders_page.dart';
 
 class RestaurantPage extends StatefulWidget {
   const RestaurantPage({super.key});
@@ -59,6 +63,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
   final String _apiKey = 'AIzaSyDHujk0Z7p3_mjmPsicmn7T9iyQBC0ZqtU';
   bool _isLoading = false;
   late final Stream<DatabaseEvent> _ordersStream;
+  late final Stream<DatabaseEvent> _scheduledOrdersStream;
 
   @override
   void initState() {
@@ -69,7 +74,16 @@ class _RestaurantPageState extends State<RestaurantPage> {
         .child('orders')
         .orderByChild('restaurantId')
         .equalTo(_user?.uid)
-        .onValue;
+        .onValue
+        .asBroadcastStream();
+        
+    _scheduledOrdersStream = FirebaseDatabase.instance
+        .ref()
+        .child('scheduled_orders')
+        .orderByChild('restaurantId')
+        .equalTo(_user?.uid)
+        .onValue
+        .asBroadcastStream();
   }
 
   @override
@@ -392,8 +406,36 @@ class _RestaurantPageState extends State<RestaurantPage> {
     }
   }
 
-  Future<void> _selectTime(BuildContext context, String day, bool isOpening) async {
-    final currentTime = _businessHours[day]?[isOpening ? 'openTime' : 'closeTime'] ?? '09:00';
+  Future<void> _updateDiscount(int discountPercentage) async {
+    try {
+      await FirebaseDatabase.instance
+          .ref()
+          .child('restaurants')
+          .child(_user!.uid)
+          .update({
+        'discount': discountPercentage,
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(discountPercentage > 0 
+              ? 'Discount set to $discountPercentage%' 
+              : 'Discount removed'),
+          backgroundColor: const Color(0xFFF4A261),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating discount: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _selectTime(BuildContext context, String day, bool isOpeningTime) async {
+    final currentTime = _businessHours[day]?[isOpeningTime ? 'openTime' : 'closeTime'] ?? '09:00';
     final parts = currentTime.split(':');
     final initialTime = TimeOfDay(
       hour: int.parse(parts[0]),
@@ -408,7 +450,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
     if (picked != null) {
       final newTime = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
       setState(() {
-        _businessHours[day]![isOpening ? 'openTime' : 'closeTime'] = newTime;
+        _businessHours[day]![isOpeningTime ? 'openTime' : 'closeTime'] = newTime;
       });
 
       try {
@@ -858,57 +900,81 @@ class _RestaurantPageState extends State<RestaurantPage> {
                         ),
                       ),
                     if (order['order_status'] == 'delivered') 
-                      Stack(
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          IconButton(
-                            icon: const Icon(Icons.chat, size: 20),
-                            onPressed: () {
-                              final customerId = order['customerId'] ?? order['userId'] ?? '';
-                              final customerName = order['customerName'] ?? 'Customer';
-                              
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => OrderChatPage(
-                                    orderId: orderId,
-                                    restaurantId: _user?.uid ?? '',
-                                    restaurantName: _nameController.text.isNotEmpty ? _nameController.text : 'Restaurant',
-                                    customerName: customerName,
-                                    userType: 'restaurant',
-                                  ),
+                          // One-on-one chat button
+                          Stack(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.chat, size: 20),
+                                onPressed: () {
+                                  final customerId = order['customerId'] ?? order['userId'] ?? '';
+                                  final customerName = order['customerName'] ?? 'Customer';
+                                  
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => OrderChatPage(
+                                        orderId: orderId,
+                                        restaurantId: _user?.uid ?? '',
+                                        restaurantName: _nameController.text.isNotEmpty ? _nameController.text : 'Restaurant',
+                                        customerName: customerName,
+                                        userType: 'restaurant',
+                                      ),
+                                    ),
+                                  );
+                                },
+                                tooltip: 'Chat with Customer',
+                                color: const Color(0xFFF4A261),
+                              ),
+                              Positioned(
+                                right: 0,
+                                top: 0,
+                                child: UnreadMessageCount(
+                                  orderId: orderId,
+                                  userType: 'restaurant',
                                 ),
-                              );
-                            },
-                            tooltip: 'Chat with Customer',
-                            color: const Color(0xFFF4A261),
+                              ),
+                            ],
                           ),
-                          Positioned(
-                            right: 0,
-                            top: 0,
-                            child: UnreadMessageCount(
-                              orderId: orderId,
-                              userType: 'restaurant',
-                            ),
+                          // Group chat button
+                          Stack(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.group, size: 20),
+                                onPressed: () {
+                                  final customerName = order['customerName'] ?? 'Customer';
+                                  final driverName = order['driverName'] ?? 'Driver';
+                                  
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) => OrderGroupChatDialog(
+                                      orderId: orderId,
+                                      restaurantId: _user?.uid ?? '',
+                                      restaurantName: _nameController.text.isNotEmpty ? _nameController.text : 'Restaurant',
+                                      customerName: customerName,
+                                      driverName: driverName,
+                                      senderType: 'restaurant',
+                                    ),
+                                  );
+                                },
+                                tooltip: 'Group Chat',
+                                color: Colors.purple,
+                              ),
+                              Positioned(
+                                right: 0,
+                                top: 0,
+                                child: UnreadMessageCount(
+                                  orderId: orderId,
+                                  userType: 'restaurant',
+                                  isGroupChat: true,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    if (tip > 0) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          'Tip: \$${tip.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            color: Colors.green,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
                 const Divider(),
@@ -1812,292 +1878,237 @@ class _RestaurantPageState extends State<RestaurantPage> {
   }
 
   Widget _buildAccountTab() {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Profile Section
-            Center(
-              child: Column(
-                children: [
-                  Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 50,
-                        backgroundColor: Colors.grey[200],
-                        backgroundImage: _restaurant?.profileImageUrl != null
-                            ? NetworkImage(_restaurant!.profileImageUrl!)
-                            : null,
-                        child: _restaurant?.profileImageUrl == null
-                            ? const Icon(Icons.restaurant, size: 50)
-                            : null,
-                      ),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: CircleAvatar(
-                          backgroundColor: const Color(0xFFF4A261),
-                          radius: 18,
-                          child: _isLoading
-                              ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                              : IconButton(
-                            icon: const Icon(Icons.camera_alt, size: 18),
-                            onPressed: _pickImage,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
+    return ListView(
+      children: [
+        const SizedBox(height: 16),
+        // Orders Management section
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            'ORDERS MANAGEMENT',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
             ),
-            const SizedBox(height: 32),
-
-            // Store Settings Main Section
-            Text(
-              'Store Settings',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).textTheme.titleLarge?.color,
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Store Information Button
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.store, color: Color(0xFFF4A261)),
-                title: const Text(
-                  'Store Information',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: const Text('Edit your store details, description, and contact information'),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const EditStoreInfoPage(),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Store Hours Section
-            Card(
-              child: ExpansionTile(
-                title: const Text(
-                  'Store Hours',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                leading: const Icon(Icons.access_time),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: _businessHours.entries.map((entry) => Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Column(
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    entry.key,
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                  Switch(
-                                    value: entry.value['isOpen'] == true,
-                                    onChanged: (value) => _toggleDayOpen(entry.key),
-                                  ),
-                                ],
-                              ),
-                              if (entry.value['isOpen'] == true) ...[
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: TextButton.icon(
-                                        onPressed: () => _selectTime(context, entry.key, true),
-                                        icon: const Icon(Icons.access_time),
-                                        label: Text(entry.value['openTime']!),
-                                      ),
-                                    ),
-                                    const Text('to'),
-                                    Expanded(
-                                      child: TextButton.icon(
-                                        onPressed: () => _selectTime(context, entry.key, false),
-                                        icon: const Icon(Icons.access_time),
-                                        label: Text(entry.value['closeTime']!),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      )).toList(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Support Section
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.support_agent, color: Color(0xFFF4A261)),
-                title: const Text(
-                  'Support',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () async {
-                  // Fetch restaurant name from store_info
-                  final storeInfoSnapshot = await FirebaseDatabase.instance
-                      .ref()
-                      .child('restaurants')
-                      .child(_user!.uid)
-                      .child('store_info')
-                      .child('name')
-                      .get();
-                      
-                  if (mounted) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => RestaurantChatPage(
-                          restaurantId: _user!.uid,
-                          restaurantName: storeInfoSnapshot.value?.toString() ?? 'Restaurant',
-                        ),
-                      ),
-                    );
-                  }
-                },
-              ),
-            ),
-            const SizedBox(height: 32),
-
-            // Appearance Main Section
-            Text(
-              'Appearance',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).textTheme.titleLarge?.color,
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Dark Mode Section
-            Card(
-              child: ExpansionTile(
-                title: Text(
-                  'Dark Mode',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).textTheme.titleMedium?.color,
-                  ),
-                ),
-                leading: Icon(
-                  Icons.dark_mode,
-                  color: Theme.of(context).textTheme.titleMedium?.color,
-                ),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: SwitchListTile(
-                      title: Text(
-                        'Enable Dark Mode',
-                        style: TextStyle(
-                          color: Theme.of(context).textTheme.bodyLarge?.color,
-                        ),
-                      ),
-                      value: themeProvider.isDarkMode,
-                      onChanged: (value) {
-                        themeProvider.toggleTheme();
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Language Section
-            Card(
-              child: ExpansionTile(
-                title: const Text(
-                  'Language',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                leading: const Icon(Icons.language),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: SwitchListTile(
-                      title: const Text('English'),
-                      subtitle: Text(_isEnglish ? 'English' : 'French'),
-                      value: _isEnglish,
-                      onChanged: (value) {
-                        setState(() {
-                          _isEnglish = value;
-                        });
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-
-            // Sign Out Button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _signOut,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: const Text('Sign Out'),
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.schedule),
+            title: const Text('Scheduled Orders'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ScheduledOrdersPage(),
+                ),
+              );
+            },
+          ),
+        ),
+        // Restaurant Management section
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            'RESTAURANT MANAGEMENT',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
+            ),
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.store),
+            title: const Text('Store Information'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const EditStoreInfoPage(),
+                ),
+              );
+            },
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.bar_chart),
+            title: const Text('Sales Reports'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SalesReportsPage(),
+                ),
+              );
+            },
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.trending_up),
+            title: const Text('Best Selling Dishes'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const BestSellingDishesPage(),
+                ),
+              );
+            },
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.access_time),
+            title: const Text('Store Hours'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              // Implement store hours editing functionality
+            },
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.discount),
+            title: const Text('Special Discount'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              // Implement special discount editing functionality
+            },
+          ),
+        ),
+        Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: const Icon(Icons.support_agent),
+            title: const Text('Support'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              // Fetch restaurant name from store_info
+              final storeInfoSnapshot = await FirebaseDatabase.instance
+                  .ref()
+                  .child('restaurants')
+                  .child(_user!.uid)
+                  .child('store_info')
+                  .child('name')
+                  .get();
+                      
+              if (mounted) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => RestaurantChatPage(
+                      restaurantId: _user!.uid,
+                      restaurantName: storeInfoSnapshot.value?.toString() ?? 'Restaurant',
+                    ),
+                  ),
+                );
+              }
+            },
+          ),
+        ),
+        const SizedBox(height: 32),
+        // Appearance Main Section
+        Text(
+          'Appearance',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).textTheme.titleLarge?.color,
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Dark Mode Section
+        Card(
+          child: ExpansionTile(
+            title: Text(
+              'Dark Mode',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).textTheme.titleMedium?.color,
+              ),
+            ),
+            leading: Icon(
+              Icons.dark_mode,
+              color: Theme.of(context).textTheme.titleMedium?.color,
+            ),
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: SwitchListTile(
+                  title: Text(
+                    'Enable Dark Mode',
+                    style: TextStyle(
+                      color: Theme.of(context).textTheme.bodyLarge?.color,
+                    ),
+                  ),
+                  value: Provider.of<ThemeProvider>(context).isDarkMode,
+                  onChanged: (value) {
+                    Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Language Section
+        Card(
+          child: ExpansionTile(
+            title: const Text(
+              'Language',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            leading: const Icon(Icons.language),
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: SwitchListTile(
+                  title: const Text('English'),
+                  subtitle: Text(_isEnglish ? 'English' : 'French'),
+                  value: _isEnglish,
+                  onChanged: (value) {
+                    setState(() {
+                      _isEnglish = value;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 32),
+        // Sign Out Button
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _signOut,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            child: const Text('Sign Out'),
+          ),
+        ),
+      ],
     );
   }
 
@@ -2215,5 +2226,250 @@ class _RestaurantPageState extends State<RestaurantPage> {
         ],
       ),
     );
+  }
+}
+
+class OrderGroupChatDialog extends StatefulWidget {
+  final String orderId;
+  final String restaurantId;
+  final String restaurantName;
+  final String customerName;
+  final String driverName;
+  final String senderType;
+
+  const OrderGroupChatDialog({
+    Key? key,
+    required this.orderId,
+    required this.restaurantId,
+    required this.restaurantName,
+    required this.customerName,
+    required this.driverName,
+    this.senderType = 'restaurant',
+  }) : super(key: key);
+
+  @override
+  State<OrderGroupChatDialog> createState() => _OrderGroupChatDialogState();
+}
+
+class _OrderGroupChatDialogState extends State<OrderGroupChatDialog> {
+  final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final DatabaseReference _messagesRef = FirebaseDatabase.instance.ref().child('orders');
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  Future<void> _sendMessage() async {
+    if (_messageController.text.trim().isEmpty) return;
+
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final message = {
+      'message': _messageController.text.trim(),
+      'senderId': user.uid,
+      'senderType': widget.senderType.toLowerCase(),
+      'senderName': widget.senderType.toLowerCase() == 'admin' ? 'Admin' : widget.restaurantName,
+      'timestamp': ServerValue.timestamp,
+    };
+
+    try {
+      await _messagesRef
+          .child(widget.orderId)
+          .child('group_chat')
+          .push()
+          .set(message);
+
+      _messageController.clear();
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint('Error sending message: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Group Chat',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const Divider(),
+            Expanded(
+              child: StreamBuilder<DatabaseEvent>(
+                stream: _messagesRef
+                    .child(widget.orderId)
+                    .child('group_chat')
+                    .orderByChild('timestamp')
+                    .onValue,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (snapshot.data?.snapshot.value == null) {
+                    return const Center(child: Text('No messages yet'));
+                  }
+
+                  List<MapEntry<dynamic, dynamic>> messageList = [];
+                  final data = snapshot.data!.snapshot.value;
+                  if (data is Map) {
+                    messageList = data.entries.toList()
+                      ..sort((a, b) => (a.value['timestamp'] ?? 0).compareTo(b.value['timestamp'] ?? 0));
+                  }
+
+                  WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+                  return ListView.builder(
+                    controller: _scrollController,
+                    itemCount: messageList.length,
+                    itemBuilder: (context, index) {
+                      final messageData = messageList[index].value as Map<dynamic, dynamic>;
+                      final isMe = messageData['senderId'] == _auth.currentUser?.uid;
+                      final senderType = (messageData['senderType']?.toString() ?? 'unknown').toLowerCase();
+                      final senderName = messageData['senderName']?.toString() ?? 'Unknown';
+                      final messageText = messageData['message']?.toString() ?? '';
+                      final timestamp = messageData['timestamp'] as int? ?? 0;
+
+                      Color bubbleColor;
+                      Color textColor;
+                      switch (senderType) {
+                        case 'restaurant':
+                          bubbleColor = Colors.blue[100]!;
+                          textColor = Colors.blue[900]!;
+                          break;
+                        case 'customer':
+                          bubbleColor = Colors.green[100]!;
+                          textColor = Colors.green[900]!;
+                          break;
+                        case 'driver':
+                          bubbleColor = Colors.orange[100]!;
+                          textColor = Colors.orange[900]!;
+                          break;
+                        default:
+                          bubbleColor = Colors.grey[200]!;
+                          textColor = Colors.grey[900]!;
+                      }
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        child: Column(
+                          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                          children: [
+                            if (!isMe) 
+                              Padding(
+                                padding: const EdgeInsets.only(left: 12, bottom: 4),
+                                child: Text(
+                                  senderName,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: textColor,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: bubbleColor,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    messageText,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _formatTimestamp(timestamp),
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            const Divider(),
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message...',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: null,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.send),
+                    onPressed: _sendMessage,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTimestamp(dynamic timestamp) {
+    if (timestamp == null) return '';
+    final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    return DateFormat('h:mm a').format(date);
   }
 } 
